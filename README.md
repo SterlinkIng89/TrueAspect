@@ -1,63 +1,63 @@
 # Steam Screenshot Cropper
 
-Automate black bar removal from Steam screenshots taken on Ultrawide (21:9 / 32:9) monitors when playing games that only render in 16:9 (or games with letterboxed cutscenes).
+Automate black bar removal from Steam screenshots taken on Ultrawide (21:9 / 32:9) monitors when playing games that render in 16:9 (or games with letterboxed cutscenes).
 
-## Overview
+Available as both a **standalone Desktop GUI** (Go + Wails + React + Tailwind) and a **Python CLI script**.
 
-When playing games without native ultrawide support on a 21:9 or 32:9 display, screenshots captured by Steam often contain large black pillarbox bars on the left and right. Manually cropping dozens or hundreds of screenshots in photo editors is tedious.
+## Features
 
-**Steam Screenshot Cropper** automatically:
-- Inspects your screenshot dimensions and desired target ratio (e.g. `16:9`, `21:9`).
-- Verifies that the margins to be cropped actually consist of black pixels (so in-game dark elements or wider scenes are never accidentally clipped).
-- Crops pillarboxed/letterboxed bars cleanly.
-- Preserves original files without overwriting them.
-- Skips already-processed screenshots on subsequent runs.
-
----
-
-## Installation
-
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/SterlinkIng89/steam-screenshot-cropper.git
-   cd steam-screenshot-cropper
-   ```
-
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+- **Drag & Drop**: Drag a folder or multiple images directly onto the window.
+- **Bulk Selection**: Select all, clear, click to toggle, or Shift+Click for range selection.
+- **Thumbnail Grid**: Fast thumbnail generation with in-memory caching and lazy loading.
+- **Smart Cropping**: Checks margin luminance (<= 20) before cropping to ensure gameplay elements aren't cut off.
+- **Safe by Default**: Original files are never modified or overwritten; existing outputs are skipped.
+- **Aspect Ratios**: 16:9 (standard), 21:9 (ultrawide), 4:3 (retro), 16:10.
+- **Configurable Output**: Defaults to `~/Pictures/steam-cropped`.
 
 ---
 
-## Usage
+## Desktop Application (Go + Wails)
+
+### Prerequisites
+
+- [Go](https://go.dev/) 1.23+
+- [Node.js](https://nodejs.org/) 18+
+- [Wails CLI](https://wails.io/): `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+
+### Development
+
+Run live development with hot reload:
+```bash
+wails dev
+```
+
+### Build Executable
+
+Produce a production single binary (`build/bin/steam-screenshot-cropper.exe`):
+```bash
+wails build
+```
+
+---
+
+## Python CLI Usage
+
+If you prefer using the command-line script:
+
+### Installation
+```bash
+pip install -r requirements.txt
+```
 
 ### Basic Usage
-Process screenshots from a folder:
 ```bash
 python crop_ss.py "C:\Program Files (x86)\Steam\userdata\<your-id>\760\remote\<game-id>\screenshots"
 ```
 
-Output cropped images are saved to `~/Pictures/steam-cropped` by default.
-
-### Custom Output Directory
+### Options
 ```bash
-python crop_ss.py "C:\path\to\screenshots" --out "C:\path\to\output"
+python crop_ss.py "C:\path\to\screenshots" --out "C:\path\to\output" --ratio 16:9
 ```
-
-### Dry Run (Preview without writing files)
-```bash
-python crop_ss.py "C:\path\to\screenshots" --dry-run
-```
-
-### Custom Aspect Ratio
-For games with cinematic letterboxing (bars on top and bottom) or custom ratios:
-```bash
-python crop_ss.py "C:\path\to\screenshots" --ratio 21:9
-python crop_ss.py "C:\path\to\screenshots" --ratio 4:3
-```
-
-### CLI Arguments
 
 | Argument | Default | Description |
 |---|---|---|
