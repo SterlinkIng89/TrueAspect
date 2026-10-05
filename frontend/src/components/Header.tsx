@@ -1,0 +1,41 @@
+import type { ReactElement } from 'react'
+import { FolderOpen } from 'lucide-react'
+
+interface HeaderProps {
+  readonly currentFolder: string | null
+  readonly onPickFolder: () => void
+  readonly disabled?: boolean
+}
+
+export function Header({ currentFolder, onPickFolder, disabled }: HeaderProps): ReactElement {
+  return (
+    <header className="h-14 border-b border-border bg-card/80 px-4 flex items-center justify-between shrink-0 select-none">
+      <div className="flex items-center gap-2.5">
+        <div className="w-2.5 h-2.5 rounded-full bg-primary" />
+        <h1 className="text-sm font-medium tracking-tight text-foreground">
+          Steam screenshot cropper
+        </h1>
+      </div>
+
+      <div className="flex items-center gap-3">
+        {currentFolder && (
+          <span
+            className="text-xs text-muted-foreground truncate max-w-[320px] font-mono bg-muted/60 px-2.5 py-1 rounded"
+            title={currentFolder}
+          >
+            {currentFolder}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={onPickFolder}
+          disabled={disabled}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-foreground bg-muted hover:bg-muted/80 active:bg-muted/60 border border-border transition-colors disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
+        >
+          <FolderOpen className="w-3.5 h-3.5 text-muted-foreground" />
+          Choose folder
+        </button>
+      </div>
+    </header>
+  )
+}
