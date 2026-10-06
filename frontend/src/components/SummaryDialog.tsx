@@ -1,16 +1,18 @@
 import type { ReactElement } from 'react'
 import { CheckCircle2, Copy, SkipForward, AlertCircle, X } from 'lucide-react'
-import type { CropResultItem } from '../types/screenshot'
+import type { CropResultItem, OutputMode } from '../types/screenshot'
 
 interface SummaryDialogProps {
   readonly results: readonly CropResultItem[] | null
   readonly outputFolder: string
+  readonly outputMode?: OutputMode
   readonly onClose: () => void
 }
 
 export function SummaryDialog({
   results,
   outputFolder,
+  outputMode = 'directory',
   onClose,
 }: SummaryDialogProps): ReactElement | null {
   if (!results || results.length === 0) return null
@@ -75,9 +77,14 @@ export function SummaryDialog({
         </div>
 
         <div className="bg-muted/30 border border-border/50 rounded-lg p-3 mb-5">
-          <p className="text-[11px] text-muted-foreground mb-0.5">Saved to:</p>
-          <p className="text-xs text-foreground font-mono truncate" title={outputFolder}>
-            {outputFolder}
+          <p className="text-[11px] text-muted-foreground mb-0.5">
+            {outputMode === 'replace' ? 'Destination:' : 'Saved to:'}
+          </p>
+          <p
+            className="text-xs text-foreground font-mono truncate"
+            title={outputMode === 'replace' ? 'Original files replaced in-place' : outputFolder}
+          >
+            {outputMode === 'replace' ? 'Replaced original files in-place' : outputFolder}
           </p>
         </div>
 

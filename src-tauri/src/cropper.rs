@@ -5,6 +5,14 @@ use image::{GenericImageView, ImageEncoder};
 
 pub const DEFAULT_THRESHOLD: u8 = 20;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputMode {
+    #[default]
+    Directory,
+    Replace,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
@@ -146,12 +154,115 @@ pub fn is_black_region(img: &image::DynamicImage, r: Rect, threshold: u8) -> boo
     true
 }
 
+fn encode_and_save(
+    img: &image::DynamicImage,
+    target_path: &Path,
+    ext: &str,
+    quality: u8,
+) -> Result<(), String> {
+    let out_file = File::create(target_path)
+        .map_err(|e| format!("failed to create output file: {e}"))?;
+    let mut writer = BufWriter::new(out_file);
+
+    if ext == "png" {
+        let encoder = image::codecs::png::PngEncoder::new(&mut writer);
+        encoder
+            .write_image(
+                img.to_rgba8().as_raw(),
+                img.width(),
+                img.height(),
+                image::ExtendedColorType::Rgba8,
+            )
+            .map_err(|e| format!("png encode error: {e}"))?;
+    } else {
+        let q = if quality == 0 || quality > 100 { 95 } else { quality };
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut writer, q);
+        encoder
+            .write_image(
+                img.to_rgb8().as_raw(),
+                img.width(),
+                img.height(),
+                image::ExtendedColorType::Rgb8,
+            )
+            .map_err(|e| format!("jpeg encode error: {e}"))?;
+    }
+    Ok(())
+}
+
+fn handle_unmodified(
+    src_path: &Path,
+    dest_path: Option<&std::path::PathBuf>,
+    mode: OutputMode,
+    reason: &str,
+    status_on_copy: Status,
+) -> CropResult {
+    match mode {
+        OutputMode::Directory => {
+            if let Some(target) = dest_path {
+                if let Err(e) = fs::copy(src_path, target) {
+                    return CropResult {
+                        path: src_path.to_string_lossy().to_string(),
+                        status: Status::Error,
+                        message: format!("copy error: {e}"),
+                    };
+                }
+            }
+            CropResult {
+                path: src_path.to_string_lossy().to_string(),
+                status: status_on_copy,
+                message: format!("{reason}; copied"),
+            }
+        }
+        OutputMode::Replace => CropResult {
+            path: src_path.to_string_lossy().to_string(),
+            status: Status::Skipped,
+            message: format!("{reason}; kept unmodified"),
+        },
+    }
+}
+
+fn save_cropped(
+    cropped: &image::DynamicImage,
+    src_path: &Path,
+    dest_path: Option<&std::path::PathBuf>,
+    filename: &str,
+    ext: &str,
+    quality: u8,
+    mode: OutputMode,
+) -> Result<(), String> {
+    match mode {
+        OutputMode::Directory => {
+            let target = dest_path.ok_or_else(|| "missing destination directory".to_string())?;
+            encode_and_save(cropped, target, ext, quality)
+        }
+        OutputMode::Replace => {
+            let parent = src_path.parent().unwrap_or_else(|| Path::new("."));
+            let temp_path = parent.join(format!(".{}_{}.tmp_crop", std::process::id(), filename));
+
+            if let Err(e) = encode_and_save(cropped, &temp_path, ext, quality) {
+                let _ = fs::remove_file(&temp_path);
+                return Err(e);
+            }
+
+            let res = fs::rename(&temp_path, src_path).or_else(|rename_err| {
+                fs::copy(&temp_path, src_path)
+                    .map(|_| ())
+                    .map_err(|copy_err| format!("{copy_err} (rename error: {rename_err})"))
+            });
+
+            let _ = fs::remove_file(&temp_path);
+            res.map_err(|e| format!("failed to replace original file: {e}"))
+        }
+    }
+}
+
 pub fn process(
     src_path: &Path,
     out_dir: &Path,
     target_ratio: f64,
     threshold: u8,
     quality: u8,
+    mode: OutputMode,
 ) -> CropResult {
     let filename = match src_path.file_name() {
         Some(name) => name.to_string_lossy().to_string(),
@@ -164,22 +275,27 @@ pub fn process(
         }
     };
 
-    if let Err(e) = fs::create_dir_all(out_dir) {
-        return CropResult {
-            path: src_path.to_string_lossy().to_string(),
-            status: Status::Error,
-            message: format!("failed to create output dir: {e}"),
-        };
-    }
+    let dest_path = if mode == OutputMode::Directory {
+        if let Err(e) = fs::create_dir_all(out_dir) {
+            return CropResult {
+                path: src_path.to_string_lossy().to_string(),
+                status: Status::Error,
+                message: format!("failed to create output dir: {e}"),
+            };
+        }
 
-    let dest_path = out_dir.join(&filename);
-    if dest_path.exists() {
-        return CropResult {
-            path: src_path.to_string_lossy().to_string(),
-            status: Status::Skipped,
-            message: "already exists in output".to_string(),
-        };
-    }
+        let p = out_dir.join(&filename);
+        if p.exists() {
+            return CropResult {
+                path: src_path.to_string_lossy().to_string(),
+                status: Status::Skipped,
+                message: "already exists in output".to_string(),
+            };
+        }
+        Some(p)
+    } else {
+        None
+    };
 
     let img = match image::open(src_path) {
         Ok(i) => i,
@@ -200,21 +316,16 @@ pub fn process(
         && box_rect.width() == width
         && box_rect.height() == height
     {
-        if let Err(e) = fs::copy(src_path, &dest_path) {
-            return CropResult {
-                path: src_path.to_string_lossy().to_string(),
-                status: Status::Error,
-                message: format!("copy error: {e}"),
-            };
-        }
-        return CropResult {
-            path: src_path.to_string_lossy().to_string(),
-            status: Status::Copied,
-            message: "already target ratio; copied".to_string(),
-        };
+        return handle_unmodified(
+            src_path,
+            dest_path.as_ref(),
+            mode,
+            "already matches target ratio",
+            Status::Copied,
+        );
     }
 
-    // Verify the 4 candidate margin regions are black
+    // Verify candidate margin regions are black
     let left_bar = Rect::new(0, 0, box_rect.min_x, height);
     let right_bar = Rect::new(box_rect.max_x, 0, width, height);
     let top_bar = Rect::new(0, 0, width, box_rect.min_y);
@@ -226,18 +337,13 @@ pub fn process(
         && is_black_region(&img, bottom_bar, threshold);
 
     if !bars_are_black {
-        if let Err(e) = fs::copy(src_path, &dest_path) {
-            return CropResult {
-                path: src_path.to_string_lossy().to_string(),
-                status: Status::Error,
-                message: format!("copy error: {e}"),
-            };
-        }
-        return CropResult {
-            path: src_path.to_string_lossy().to_string(),
-            status: Status::Copied,
-            message: "non-black margins; copied without cropping".to_string(),
-        };
+        return handle_unmodified(
+            src_path,
+            dest_path.as_ref(),
+            mode,
+            "non-black margins",
+            Status::Copied,
+        );
     }
 
     let cropped = img.crop_imm(
@@ -247,48 +353,25 @@ pub fn process(
         box_rect.height(),
     );
 
-    let out_file = match File::create(&dest_path) {
-        Ok(f) => f,
-        Err(e) => {
-            return CropResult {
-                path: src_path.to_string_lossy().to_string(),
-                status: Status::Error,
-                message: format!("failed to create output file: {e}"),
-            }
-        }
-    };
-    let mut writer = BufWriter::new(out_file);
-
     let ext = src_path
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_lowercase();
 
-    let save_res = if ext == "png" {
-        let encoder = image::codecs::png::PngEncoder::new(&mut writer);
-        encoder.write_image(
-            cropped.to_rgba8().as_raw(),
-            cropped.width(),
-            cropped.height(),
-            image::ExtendedColorType::Rgba8,
-        )
-    } else {
-        let q = if quality == 0 || quality > 100 { 95 } else { quality };
-        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut writer, q);
-        encoder.write_image(
-            cropped.to_rgb8().as_raw(),
-            cropped.width(),
-            cropped.height(),
-            image::ExtendedColorType::Rgb8,
-        )
-    };
-
-    if let Err(e) = save_res {
+    if let Err(e) = save_cropped(
+        &cropped,
+        src_path,
+        dest_path.as_ref(),
+        &filename,
+        &ext,
+        quality,
+        mode,
+    ) {
         return CropResult {
             path: src_path.to_string_lossy().to_string(),
             status: Status::Error,
-            message: format!("encode error: {e}"),
+            message: e,
         };
     }
 
@@ -381,7 +464,7 @@ mod tests {
         img.save(&src_path).unwrap();
 
         // Target ratio 150:100 = 1.5
-        let res = process(&src_path, &out_dir, 1.5, 20, 95);
+        let res = process(&src_path, &out_dir, 1.5, 20, 95, OutputMode::Directory);
         assert_eq!(res.status, Status::Cropped);
 
         let out_file = out_dir.join("test_pillarbox.png");
@@ -403,13 +486,64 @@ mod tests {
         }
         img.save(&src_path).unwrap();
 
-        let res = process(&src_path, &out_dir, 1.5, 20, 95);
+        let res = process(&src_path, &out_dir, 1.5, 20, 95, OutputMode::Directory);
         assert_eq!(res.status, Status::Copied);
 
         let out_file = out_dir.join("test_bright.png");
         assert!(out_file.exists());
         let loaded = image::open(&out_file).unwrap();
         assert_eq!(loaded.width(), 200);
+        assert_eq!(loaded.height(), 100);
+    }
+
+    #[test]
+    fn test_process_replace_mode_cropped() {
+        let dir = tempdir().unwrap();
+        let src_path = dir.path().join("test_replace_pillarbox.png");
+        let dummy_out_dir = dir.path().join("unused_output");
+
+        // Create 200x100 image with 25px black bars on left/right and bright center
+        let mut img = RgbaImage::new(200, 100);
+        for y in 0..100 {
+            for x in 0..200 {
+                if x < 25 || x >= 175 {
+                    img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+                } else {
+                    img.put_pixel(x, y, Rgba([200, 200, 200, 255]));
+                }
+            }
+        }
+        img.save(&src_path).unwrap();
+
+        let res = process(&src_path, &dummy_out_dir, 1.5, 20, 95, OutputMode::Replace);
+        assert_eq!(res.status, Status::Cropped);
+
+        // The original file must have been replaced in-place
+        assert!(src_path.exists());
+        let loaded = image::open(&src_path).unwrap();
+        assert_eq!(loaded.width(), 150);
+        assert_eq!(loaded.height(), 100);
+        // The dummy output dir should not contain files
+        assert!(!dummy_out_dir.exists());
+    }
+
+    #[test]
+    fn test_process_replace_mode_exact_ratio_unmodified() {
+        let dir = tempdir().unwrap();
+        let src_path = dir.path().join("test_exact.png");
+        let dummy_out_dir = dir.path().join("unused_output");
+
+        let mut img = RgbaImage::new(150, 100);
+        for pixel in img.pixels_mut() {
+            *pixel = Rgba([100, 100, 100, 255]);
+        }
+        img.save(&src_path).unwrap();
+
+        let res = process(&src_path, &dummy_out_dir, 1.5, 20, 95, OutputMode::Replace);
+        assert_eq!(res.status, Status::Skipped);
+
+        let loaded = image::open(&src_path).unwrap();
+        assert_eq!(loaded.width(), 150);
         assert_eq!(loaded.height(), 100);
     }
 }

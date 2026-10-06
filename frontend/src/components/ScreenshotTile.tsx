@@ -8,14 +8,16 @@ interface ScreenshotTileProps {
   readonly item: ScreenshotItem
   readonly isSelected: boolean
   readonly onToggle: (path: string, isShiftKey: boolean) => void
+  readonly version?: number
 }
 
 export const ScreenshotTile = memo(function ScreenshotTile({
   item,
   isSelected,
   onToggle,
+  version,
 }: ScreenshotTileProps): ReactElement {
-  const thumbUrl = getThumbnailUrl(item.path)
+  const thumbUrl = getThumbnailUrl(item.path, version)
 
   const handleClick = (e: React.MouseEvent) => {
     onToggle(item.path, e.shiftKey)
