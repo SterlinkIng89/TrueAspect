@@ -2,6 +2,7 @@ import { memo, type ReactElement, type KeyboardEvent } from 'react'
 import { Check } from 'lucide-react'
 import type { ScreenshotItem } from '../types/screenshot'
 import { cn } from '../lib/cn'
+import { getThumbnailUrl } from '../lib/tauriApi'
 
 interface ScreenshotTileProps {
   readonly item: ScreenshotItem
@@ -14,7 +15,7 @@ export const ScreenshotTile = memo(function ScreenshotTile({
   isSelected,
   onToggle,
 }: ScreenshotTileProps): ReactElement {
-  const thumbUrl = `/api/thumb?path=${encodeURIComponent(item.path)}`
+  const thumbUrl = getThumbnailUrl(item.path)
 
   const handleClick = (e: React.MouseEvent) => {
     onToggle(item.path, e.shiftKey)

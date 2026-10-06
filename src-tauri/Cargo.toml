@@ -1,0 +1,25 @@
+[package]
+name = "steam-screenshot-cropper"
+version = "0.1.0"
+description = "Steam Screenshot Cropper Desktop App"
+authors = ["SterlinkIng89"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+rayon = "1.10"
+num_cpus = "1.16"
+dirs = "5.0"
+sha2 = "0.10"
+urlencoding = "2.1"
+
+[dev-dependencies]
+tempfile = "3.17"

@@ -14,13 +14,14 @@ import {
   isCropStatus,
 } from './types/screenshot'
 import {
-  GetDefaultOutputDir,
-  PickFolder,
-  PickOutputFolder,
-  LoadScreenshots,
-  CropScreenshots,
-} from '../wailsjs/go/main/App'
-import { EventsOn } from '../wailsjs/runtime/runtime'
+  getDefaultOutputDir,
+  pickFolder,
+  pickOutputFolder,
+  loadScreenshots,
+  cropScreenshots,
+  onCropProgress,
+  onDragDropFiles,
+} from './lib/tauriApi'
 
 function getParentDirectory(filePath: string): string {
   const lastIndex = Math.max(filePath.lastIndexOf('\\'), filePath.lastIndexOf('/'))
@@ -40,16 +41,16 @@ export default function App(): ReactElement {
   const { selectedPaths, isSelected, toggle, selectAll, clear, count } = useSelection()
 
   useEffect(() => {
-    GetDefaultOutputDir()
+    getDefaultOutputDir()
       .then((dir) => setOutputFolder(dir))
       .catch(() => setOutputFolder('~/Pictures/steam-cropped'))
   }, [])
 
-  const handleLoadPaths = useCallback(async (paths: string[]) => {
+  const handleLoadPaths = useCallback(async (paths: readonly string[]) => {
     if (paths.length === 0) return
     setIsLoading(true)
     try {
-      const loaded = await LoadScreenshots(paths)
+      const loaded = await loadScreenshots(paths)
       const mapped: ScreenshotItem[] = loaded.map((s) => ({
         path: s.path,
         name: s.name,
@@ -70,20 +71,25 @@ export default function App(): ReactElement {
   }, [selectAll])
 
   useEffect(() => {
-    const unsubDrop = EventsOn('files:dropped', (paths: string[]) => {
-      setIsDragging(false)
-      if (Array.isArray(paths) && paths.length > 0) {
-        handleLoadPaths(paths)
-      }
+    let unlistenProgress: (() => void) | undefined
+    let unlistenDragDrop: (() => void) | undefined
+
+    onCropProgress((data: CropProgress) => {
+      setProgress(data)
+    }).then((unlisten) => {
+      unlistenProgress = unlisten
     })
 
-    const unsubProgress = EventsOn('crop:progress', (data: CropProgress) => {
-      setProgress(data)
+    onDragDropFiles((paths: readonly string[]) => {
+      setIsDragging(false)
+      handleLoadPaths(paths)
+    }).then((unlisten) => {
+      unlistenDragDrop = unlisten
     })
 
     return () => {
-      unsubDrop()
-      unsubProgress()
+      if (unlistenProgress) unlistenProgress()
+      if (unlistenDragDrop) unlistenDragDrop()
     }
   }, [handleLoadPaths])
 
@@ -155,7 +161,7 @@ export default function App(): ReactElement {
 
   const handlePickFolder = useCallback(async () => {
     try {
-      const selected = await PickFolder()
+      const selected = await pickFolder()
       if (selected) {
         await handleLoadPaths([selected])
       }
@@ -166,7 +172,7 @@ export default function App(): ReactElement {
 
   const handlePickOutputFolder = useCallback(async () => {
     try {
-      const selected = await PickOutputFolder()
+      const selected = await pickOutputFolder()
       if (selected) {
         setOutputFolder(selected)
       }
@@ -184,7 +190,7 @@ export default function App(): ReactElement {
 
     setProgress({ current: 0, total: selectedList.length, name: 'Starting...' })
     try {
-      const rawResults = await CropScreenshots(selectedList, ratio, outputFolder)
+      const rawResults = await cropScreenshots(selectedList, ratio, outputFolder)
       const mappedResults: CropResultItem[] = rawResults.map((r) => ({
         path: r.path,
         status: isCropStatus(r.status) ? r.status : 'error',

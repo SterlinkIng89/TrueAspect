@@ -21,7 +21,9 @@ build/
 .DS_Store
 Thumbs.db
 
-# Wails & Node
+# Rust & Tauri
+src-tauri/target/
+src-tauri/gen/
 *.exe
 frontend/dist/
 frontend/node_modules/

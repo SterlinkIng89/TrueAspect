@@ -2,7 +2,7 @@
 
 Automate black bar removal from Steam screenshots taken on Ultrawide (21:9 / 32:9) monitors when playing games that render in 16:9 (or games with letterboxed cutscenes).
 
-Available as both a **standalone Desktop GUI** (Go + Wails + React + Tailwind) and a **Python CLI script**.
+Available as both a **standalone Desktop GUI** (Rust + Tauri v2 + React + Tailwind) and a **Python CLI script**.
 
 ## Features
 
@@ -16,26 +16,26 @@ Available as both a **standalone Desktop GUI** (Go + Wails + React + Tailwind) a
 
 ---
 
-## Desktop Application (Go + Wails)
+## Desktop Application (Rust + Tauri v2)
 
 ### Prerequisites
 
-- [Go](https://go.dev/) 1.23+
+- [Rust](https://www.rust-lang.org/) (1.78+)
 - [Node.js](https://nodejs.org/) 18+
-- [Wails CLI](https://wails.io/): `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (Desktop development with C++)
 
 ### Development
 
 Run live development with hot reload:
 ```bash
-wails dev
+npm --prefix frontend run tauri dev
 ```
 
 ### Build Executable
 
-Produce a production single binary (`build/bin/steam-screenshot-cropper.exe`):
+Produce a production single binary:
 ```bash
-wails build
+npm --prefix frontend run tauri build
 ```
 
 ---
