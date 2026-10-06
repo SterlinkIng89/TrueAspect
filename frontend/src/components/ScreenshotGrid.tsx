@@ -6,12 +6,14 @@ interface ScreenshotGridProps {
   readonly items: readonly ScreenshotItem[]
   readonly isSelected: (path: string) => boolean
   readonly onToggle: (path: string, isShiftKey: boolean) => void
+  readonly version?: number
 }
 
 export function ScreenshotGrid({
   items,
   isSelected,
   onToggle,
+  version,
 }: ScreenshotGridProps): ReactElement {
   return (
     <div className="flex-1 overflow-y-auto p-4">
@@ -22,6 +24,7 @@ export function ScreenshotGrid({
             item={item}
             isSelected={isSelected(item.path)}
             onToggle={onToggle}
+            version={version}
           />
         ))}
       </div>

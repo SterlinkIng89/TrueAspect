@@ -11,6 +11,7 @@ import {
   type ScreenshotItem,
   type CropResultItem,
   type CropProgress,
+  type OutputMode,
   isCropStatus,
 } from './types/screenshot'
 import {
@@ -32,6 +33,8 @@ export default function App(): ReactElement {
   const [items, setItems] = useState<readonly ScreenshotItem[]>([])
   const [currentFolder, setCurrentFolder] = useState<string | null>(null)
   const [outputFolder, setOutputFolder] = useState<string>('')
+  const [outputMode, setOutputMode] = useState<OutputMode>('directory')
+  const [cacheVersion, setCacheVersion] = useState<number>(1)
   const [ratio, setRatio] = useState<string>('16:9')
   const [isDragging, setIsDragging] = useState<boolean>(false)
   const [progress, setProgress] = useState<CropProgress | null>(null)
@@ -172,14 +175,14 @@ export default function App(): ReactElement {
 
   const handlePickOutputFolder = useCallback(async () => {
     try {
-      const selected = await pickOutputFolder()
+      const selected = await pickOutputFolder(outputFolder)
       if (selected) {
         setOutputFolder(selected)
       }
     } catch (err) {
       console.error('Pick output folder failed:', err)
     }
-  }, [])
+  }, [outputFolder])
 
   const handleCrop = useCallback(async () => {
     const selectedList = items
@@ -190,19 +193,22 @@ export default function App(): ReactElement {
 
     setProgress({ current: 0, total: selectedList.length, name: 'Starting...' })
     try {
-      const rawResults = await cropScreenshots(selectedList, ratio, outputFolder)
+      const rawResults = await cropScreenshots(selectedList, ratio, outputFolder, outputMode)
       const mappedResults: CropResultItem[] = rawResults.map((r) => ({
         path: r.path,
         status: isCropStatus(r.status) ? r.status : 'error',
         message: r.message,
       }))
       setSummaryResults(mappedResults)
+      if (outputMode === 'replace') {
+        setCacheVersion((v) => v + 1)
+      }
     } catch (err) {
       console.error('Crop failed:', err)
     } finally {
       setProgress(null)
     }
-  }, [items, selectedPaths, ratio, outputFolder])
+  }, [items, selectedPaths, ratio, outputFolder, outputMode])
 
   const isProcessing = progress !== null || isLoading
 
@@ -221,6 +227,7 @@ export default function App(): ReactElement {
           items={items}
           isSelected={isSelected}
           onToggle={(path, isShift) => toggle(path, isShift, items)}
+          version={cacheVersion}
         />
       )}
 
@@ -231,6 +238,8 @@ export default function App(): ReactElement {
         onRatioChange={setRatio}
         outputFolder={outputFolder}
         onPickOutputFolder={handlePickOutputFolder}
+        outputMode={outputMode}
+        onOutputModeChange={setOutputMode}
         onSelectAll={() => selectAll(items)}
         onClear={clear}
         onCrop={handleCrop}
@@ -242,6 +251,7 @@ export default function App(): ReactElement {
       <SummaryDialog
         results={summaryResults}
         outputFolder={outputFolder}
+        outputMode={outputMode}
         onClose={() => setSummaryResults(null)}
       />
     </div>

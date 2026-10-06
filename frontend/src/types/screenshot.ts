@@ -3,6 +3,8 @@ export interface ScreenshotItem {
   readonly name: string
 }
 
+export type OutputMode = 'directory' | 'replace'
+
 export type CropStatus = 'cropped' | 'copied' | 'skipped' | 'error'
 
 export function isCropStatus(status: string): status is CropStatus {

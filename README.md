@@ -28,14 +28,14 @@ Built with **Rust + Tauri v2 + React + Tailwind**.
 
 Run live development with hot reload:
 ```bash
-npm --prefix frontend run tauri dev
+npx @tauri-apps/cli dev
 ```
 
 ### Build Executable
 
 Produce a production single binary:
 ```bash
-npm --prefix frontend run tauri build
+npx @tauri-apps/cli build
 ```
 
 ---

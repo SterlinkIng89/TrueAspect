@@ -1,0 +1,12 @@
+{
+  "name": "steam-screenshot-cropper",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "tauri": "npm --prefix frontend run tauri --"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1"
+  }
+}

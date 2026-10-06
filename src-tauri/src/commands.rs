@@ -62,10 +62,16 @@ pub async fn crop_screenshots(
     paths: Vec<String>,
     ratio_str: String,
     out_dir_str: String,
+    mode: Option<String>,
 ) -> Result<Vec<CropResult>, String> {
     if paths.is_empty() {
         return Ok(Vec::new());
     }
+
+    let output_mode = match mode.as_deref() {
+        Some("replace") => cropper::OutputMode::Replace,
+        _ => cropper::OutputMode::Directory,
+    };
 
     let out_dir = if out_dir_str.trim().is_empty() {
         PathBuf::from(get_default_output_dir())
@@ -96,6 +102,7 @@ pub async fn crop_screenshots(
                     target_ratio,
                     cropper::DEFAULT_THRESHOLD,
                     95,
+                    output_mode,
                 );
 
                 let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
