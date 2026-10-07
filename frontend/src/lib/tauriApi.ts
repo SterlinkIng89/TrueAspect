@@ -76,3 +76,7 @@ export function getThumbnailUrl(filePath: string, version?: number): string {
   const v = version !== undefined ? `&v=${version}` : ''
   return `http://thumb.localhost/?path=${encodeURIComponent(filePath)}${v}`
 }
+
+export async function openFolder(path: string): Promise<void> {
+  return await invoke<void>('open_folder', { path })
+}

@@ -63,6 +63,7 @@ pub async fn crop_screenshots(
     ratio_str: String,
     out_dir_str: String,
     mode: Option<String>,
+    thumb_service: State<'_, Arc<ThumbService>>,
 ) -> Result<Vec<CropResult>, String> {
     if paths.is_empty() {
         return Ok(Vec::new());
@@ -126,7 +127,46 @@ pub async fn crop_screenshots(
             .collect::<Vec<CropResult>>()
     });
 
+    if output_mode == cropper::OutputMode::Replace {
+        let replaced_paths: Vec<&str> = results
+            .iter()
+            .filter(|r| r.status == cropper::Status::Cropped)
+            .map(|r| r.path.as_str())
+            .collect();
+        thumb_service.invalidate_paths(&replaced_paths);
+    }
+
     let _ = app_handle.emit("crop:done", CropDonePayload { total });
 
     Ok(results)
+}
+
+#[tauri::command]
+pub fn open_folder(path: String) -> Result<(), String> {
+    let p = Path::new(&path);
+    if !p.exists() {
+        return Err(format!("folder does not exist: {}", path));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
