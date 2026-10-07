@@ -78,5 +78,5 @@ export function getThumbnailUrl(filePath: string, version?: number): string {
 }
 
 export async function openFolder(path: string): Promise<void> {
-  return await invoke<void>('open_folder', { path })
+  await invoke<void>('open_folder', { path })
 }

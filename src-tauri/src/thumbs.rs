@@ -58,7 +58,7 @@ impl<'a> Drop for SemaphoreGuard<'a> {
 pub fn default_cache_dir() -> PathBuf {
     dirs::cache_dir()
         .unwrap_or_else(std::env::temp_dir)
-        .join("steam-screenshot-cropper")
+        .join("true-aspect")
         .join("thumbs")
 }
 
@@ -118,6 +118,12 @@ impl ThumbService {
         format!("{:x}", hasher.finalize())
     }
 
+    fn evict_cache_key(&self, cache: &mut HashMap<String, Arc<Vec<u8>>>, key: &str) {
+        cache.remove(key);
+        let disk_path = self.cache_dir.join(format!("{}.jpg", key));
+        let _ = fs::remove_file(disk_path);
+    }
+
     pub fn invalidate_paths<I, S>(&self, paths: I)
     where
         I: IntoIterator<Item = S>,
@@ -128,19 +134,15 @@ impl ThumbService {
         for p in paths {
             let p_str = p.as_ref();
             if let Some(keys) = map.remove(p_str) {
-                for key in keys {
-                    cache.remove(&key);
-                    let disk_path = self.cache_dir.join(format!("{}.jpg", key));
-                    let _ = fs::remove_file(disk_path);
+                for key in &keys {
+                    self.evict_cache_key(&mut cache, key);
                 }
             }
 
             let path = PathBuf::from(p_str);
             if let Ok(metadata) = fs::metadata(&path) {
                 let key = self.compute_cache_key(p_str, &metadata);
-                cache.remove(&key);
-                let disk_path = self.cache_dir.join(format!("{}.jpg", key));
-                let _ = fs::remove_file(disk_path);
+                self.evict_cache_key(&mut cache, &key);
             }
         }
     }

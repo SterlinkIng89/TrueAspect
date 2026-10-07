@@ -1,6 +1,6 @@
-# Steam Screenshot Cropper
+# True Aspect
 
-Automate black bar removal from Steam screenshots taken on Ultrawide (21:9 / 32:9) monitors when playing games that render in 16:9 (or games with letterboxed cutscenes).
+Automate black bar removal from screenshots taken on Ultrawide (21:9 / 32:9) monitors when playing games that render in 16:9 (or games with letterboxed cutscenes).
 
 Built with **Rust + Tauri v2 + React + Tailwind**.
 
@@ -27,6 +27,7 @@ Built with **Rust + Tauri v2 + React + Tailwind**.
 ### Development
 
 Run live development with hot reload:
+
 ```bash
 npx @tauri-apps/cli dev
 ```
@@ -34,6 +35,7 @@ npx @tauri-apps/cli dev
 ### Build Executable
 
 Produce a production single binary:
+
 ```bash
 npx @tauri-apps/cli build
 ```
