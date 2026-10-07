@@ -48,7 +48,7 @@ fn main() {
                     Ok(data) => {
                         let response = Response::builder()
                             .header(header::CONTENT_TYPE, "image/jpeg")
-                            .header(header::CACHE_CONTROL, "public, max-age=86400")
+                            .header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate")
                             .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
                             .body(data.as_ref().clone())
                             .unwrap();
@@ -69,6 +69,7 @@ fn main() {
             commands::get_default_output_dir,
             commands::load_screenshots,
             commands::crop_screenshots,
+            commands::open_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

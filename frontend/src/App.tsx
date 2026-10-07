@@ -14,6 +14,7 @@ import {
   cropScreenshots,
   onCropProgress,
   onDragDropFiles,
+  openFolder,
 } from './lib/tauriApi'
 
 export default function App(): ReactElement {
@@ -122,7 +123,7 @@ export default function App(): ReactElement {
     try {
       const raw = await cropScreenshots(selectedList, ratio, outputFolder, outputMode)
       setSummaryResults(raw)
-      if (outputMode === 'replace') setCacheVersion((v) => v + 1)
+      if (outputMode === 'replace') setCacheVersion(Date.now())
     } catch (err) {
       console.error('Crop failed:', err)
     } finally {
@@ -211,6 +212,13 @@ export default function App(): ReactElement {
         outputFolder={outputFolder}
         outputMode={outputMode}
         onClose={() => setSummaryResults(null)}
+        onViewCropped={() => {
+          setSummaryResults(null)
+          handleLoadPaths([outputFolder])
+        }}
+        onOpenFolder={() => {
+          openFolder(outputFolder).catch((err) => console.error('Failed to open folder:', err))
+        }}
       />
     </div>
   )

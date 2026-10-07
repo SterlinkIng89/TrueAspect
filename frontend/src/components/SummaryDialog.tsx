@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { CheckCircle2, Copy, SkipForward, AlertCircle, X } from 'lucide-react'
+import { CheckCircle2, Copy, SkipForward, AlertCircle, X, FolderOpen, ExternalLink } from 'lucide-react'
 import type { CropResultItem, OutputMode } from '../types/screenshot'
 
 interface SummaryDialogProps {
@@ -7,6 +7,8 @@ interface SummaryDialogProps {
   readonly outputFolder: string
   readonly outputMode?: OutputMode
   readonly onClose: () => void
+  readonly onViewCropped?: () => void
+  readonly onOpenFolder?: () => void
 }
 
 export function SummaryDialog({
@@ -14,6 +16,8 @@ export function SummaryDialog({
   outputFolder,
   outputMode = 'directory',
   onClose,
+  onViewCropped,
+  onOpenFolder,
 }: SummaryDialogProps): ReactElement | null {
   if (!results || results.length === 0) return null
 
@@ -69,14 +73,40 @@ export function SummaryDialog({
           </p>
         </div>
 
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-md text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 transition-colors cursor-pointer"
-          >
-            Done
-          </button>
+        <div className="flex items-center justify-between gap-2">
+          {outputMode === 'directory' && (
+            <div className="flex items-center gap-2">
+              {onViewCropped && (
+                <button
+                  type="button"
+                  onClick={onViewCropped}
+                  className="px-3 py-1.5 rounded-md text-xs font-medium text-foreground bg-muted hover:bg-muted/80 border border-border transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <FolderOpen className="w-3.5 h-3.5 text-primary" />
+                  <span>View in app</span>
+                </button>
+              )}
+              {onOpenFolder && (
+                <button
+                  type="button"
+                  onClick={onOpenFolder}
+                  className="px-3 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 border border-border/60 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Open folder</span>
+                </button>
+              )}
+            </div>
+          )}
+          <div className="ml-auto">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-1.5 rounded-md text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 transition-colors cursor-pointer"
+            >
+              Done
+            </button>
+          </div>
         </div>
       </div>
     </div>

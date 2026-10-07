@@ -65,6 +65,7 @@ pub fn default_cache_dir() -> PathBuf {
 pub struct ThumbService {
     allowed: RwLock<HashSet<String>>,
     cache: Mutex<HashMap<String, Arc<Vec<u8>>>>,
+    path_to_keys: Mutex<HashMap<String, HashSet<String>>>,
     thumb_width: u32,
     cache_dir: PathBuf,
     semaphore: Semaphore,
@@ -83,6 +84,7 @@ impl ThumbService {
         Self {
             allowed: RwLock::new(HashSet::new()),
             cache: Mutex::new(HashMap::new()),
+            path_to_keys: Mutex::new(HashMap::new()),
             thumb_width: width,
             cache_dir,
             semaphore: Semaphore::new(max_concurrent),
@@ -97,6 +99,49 @@ impl ThumbService {
         let mut allowed = self.allowed.write().unwrap();
         for p in paths {
             allowed.insert(p.as_ref().to_string());
+        }
+    }
+
+    fn compute_cache_key(&self, path_str: &str, metadata: &fs::Metadata) -> String {
+        let mod_time = metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        let mut hasher = Sha256::new();
+        hasher.update(path_str.as_bytes());
+        hasher.update(mod_time.to_le_bytes());
+        hasher.update(metadata.len().to_le_bytes());
+        hasher.update(self.thumb_width.to_le_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    pub fn invalidate_paths<I, S>(&self, paths: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut map = self.path_to_keys.lock().unwrap();
+        let mut cache = self.cache.lock().unwrap();
+        for p in paths {
+            let p_str = p.as_ref();
+            if let Some(keys) = map.remove(p_str) {
+                for key in keys {
+                    cache.remove(&key);
+                    let disk_path = self.cache_dir.join(format!("{}.jpg", key));
+                    let _ = fs::remove_file(disk_path);
+                }
+            }
+
+            let path = PathBuf::from(p_str);
+            if let Ok(metadata) = fs::metadata(&path) {
+                let key = self.compute_cache_key(p_str, &metadata);
+                cache.remove(&key);
+                let disk_path = self.cache_dir.join(format!("{}.jpg", key));
+                let _ = fs::remove_file(disk_path);
+            }
         }
     }
 
@@ -143,19 +188,13 @@ impl ThumbService {
         }
 
         let metadata = fs::metadata(&path).map_err(|_| ThumbError::NotFound(path_str.to_string()))?;
-        let mod_time = metadata
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-
-        let mut hasher = Sha256::new();
-        hasher.update(path_str.as_bytes());
-        hasher.update(mod_time.to_le_bytes());
-        hasher.update(self.thumb_width.to_le_bytes());
-        let cache_key = format!("{:x}", hasher.finalize());
+        let cache_key = self.compute_cache_key(path_str, &metadata);
         let disk_path = self.cache_dir.join(format!("{}.jpg", cache_key));
+
+        {
+            let mut map = self.path_to_keys.lock().unwrap();
+            map.entry(path_str.to_string()).or_default().insert(cache_key.clone());
+        }
 
         if let Some(cached) = self.get_cached(&cache_key, &disk_path) {
             return Ok(cached);
@@ -248,6 +287,49 @@ mod tests {
         let service = ThumbService::new(420);
         let res = service.render("C:\\forbidden\\secret.exe");
         assert!(matches!(res, Err(ThumbError::Forbidden(_))));
+    }
+
+    #[test]
+    fn test_thumb_service_invalidate_paths() {
+        let dir = tempdir().unwrap();
+        let cache_dir = dir.path().join("thumb_cache");
+        let service = ThumbService::with_cache_dir(420, cache_dir.clone());
+        let img_path = dir.path().join("thumb_test.png");
+
+        let mut img = RgbaImage::new(100, 100);
+        for pixel in img.pixels_mut() {
+            *pixel = Rgba([100, 150, 200, 255]);
+        }
+        img.save(&img_path).unwrap();
+
+        let path_str = img_path.to_string_lossy().to_string();
+        service.register_allowed([&path_str]);
+
+        // Render once
+        let bytes1 = service.render(&path_str).unwrap();
+        assert!(!bytes1.is_empty());
+
+        let cached_files_before: Vec<_> = fs::read_dir(&cache_dir).unwrap().flatten().collect();
+        assert_eq!(cached_files_before.len(), 1);
+
+        // Invalidate path
+        service.invalidate_paths([&path_str]);
+
+        let cached_files_after: Vec<_> = fs::read_dir(&cache_dir).unwrap().flatten().collect();
+        assert_eq!(cached_files_after.len(), 0);
+
+        // Modify image
+        let mut img2 = RgbaImage::new(50, 50);
+        for pixel in img2.pixels_mut() {
+            *pixel = Rgba([255, 0, 0, 255]);
+        }
+        img2.save(&img_path).unwrap();
+
+        // Render again after modification
+        let bytes2 = service.render(&path_str).unwrap();
+        let decoded = image::load_from_memory(&bytes2).unwrap();
+        assert_eq!(decoded.width(), 50);
+        assert_eq!(decoded.height(), 50);
     }
 
     #[test]
