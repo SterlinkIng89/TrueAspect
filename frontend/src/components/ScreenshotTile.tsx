@@ -1,4 +1,4 @@
-import { memo, type ReactElement, type KeyboardEvent } from 'react'
+import { memo, type ReactElement, type KeyboardEvent, type MouseEvent } from 'react'
 import { Check } from 'lucide-react'
 import type { ScreenshotItem } from '../types/screenshot'
 import { cn } from '../lib/cn'
@@ -19,7 +19,7 @@ export const ScreenshotTile = memo(function ScreenshotTile({
 }: ScreenshotTileProps): ReactElement {
   const thumbUrl = getThumbnailUrl(item.path, version)
 
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = (e: MouseEvent<HTMLDivElement>) => {
     onToggle(item.path, e.shiftKey)
   }
 
@@ -38,7 +38,7 @@ export const ScreenshotTile = memo(function ScreenshotTile({
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       className={cn(
-        'group relative aspect-video rounded-lg overflow-hidden border cursor-pointer select-none bg-card transition-colors duration-150 outline-none focus-visible:ring-1 focus-visible:ring-ring',
+        'group relative aspect-video rounded-lg overflow-hidden border cursor-pointer select-none bg-black transition-colors duration-150 outline-none focus-visible:ring-1 focus-visible:ring-ring flex items-center justify-center',
         isSelected
           ? 'border-primary ring-1 ring-primary'
           : 'border-border/60 hover:border-border'
@@ -48,7 +48,7 @@ export const ScreenshotTile = memo(function ScreenshotTile({
         src={thumbUrl}
         alt={item.name}
         loading="lazy"
-        className="w-full h-full object-cover pointer-events-none"
+        className="w-full h-full object-contain pointer-events-none"
       />
 
       <div
