@@ -98,44 +98,38 @@ export default function App(): ReactElement {
 
   useEffect(() => {
     let dragCounter = 0
+    const setDrag = (active: boolean) => setIsDragging(active)
 
-    const handleDragEnter = (e: DragEvent) => {
+    const onDragEnter = (e: DragEvent) => {
       e.preventDefault()
-      dragCounter++
-      if (e.dataTransfer && e.dataTransfer.types.includes('Files')) {
-        setIsDragging(true)
-      }
+      if (++dragCounter === 1 && e.dataTransfer?.types.includes('Files')) setDrag(true)
     }
 
-    const handleDragLeave = (e: DragEvent) => {
+    const onDragLeave = (e: DragEvent) => {
       e.preventDefault()
-      dragCounter--
-      if (dragCounter <= 0) {
+      if (--dragCounter <= 0) {
         dragCounter = 0
-        setIsDragging(false)
+        setDrag(false)
       }
     }
 
-    const handleDragOver = (e: DragEvent) => {
-      e.preventDefault()
-    }
-
-    const handleDrop = (e: DragEvent) => {
+    const onDragOver = (e: DragEvent) => e.preventDefault()
+    const onDrop = (e: DragEvent) => {
       e.preventDefault()
       dragCounter = 0
-      setIsDragging(false)
+      setDrag(false)
     }
 
-    window.addEventListener('dragenter', handleDragEnter)
-    window.addEventListener('dragleave', handleDragLeave)
-    window.addEventListener('dragover', handleDragOver)
-    window.addEventListener('drop', handleDrop)
+    window.addEventListener('dragenter', onDragEnter)
+    window.addEventListener('dragleave', onDragLeave)
+    window.addEventListener('dragover', onDragOver)
+    window.addEventListener('drop', onDrop)
 
     return () => {
-      window.removeEventListener('dragenter', handleDragEnter)
-      window.removeEventListener('dragleave', handleDragLeave)
-      window.removeEventListener('dragover', handleDragOver)
-      window.removeEventListener('drop', handleDrop)
+      window.removeEventListener('dragenter', onDragEnter)
+      window.removeEventListener('dragleave', onDragLeave)
+      window.removeEventListener('dragover', onDragOver)
+      window.removeEventListener('drop', onDrop)
     }
   }, [])
 
