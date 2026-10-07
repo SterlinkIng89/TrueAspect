@@ -10,8 +10,7 @@ interface HeaderProps {
 export function Header({ currentFolder, onPickFolder, disabled }: HeaderProps): ReactElement {
   return (
     <header className="h-14 border-b border-border bg-card/80 px-4 flex items-center justify-between shrink-0 select-none">
-      <div className="flex items-center gap-2.5">
-        <div className="w-2.5 h-2.5 rounded-full bg-primary" />
+      <div className="flex items-center">
         <h1 className="text-sm font-medium tracking-tight text-foreground">True Aspect</h1>
       </div>
 
