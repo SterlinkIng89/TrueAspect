@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import { FolderUp } from 'lucide-react'
+import { UiButton } from './UiButton'
 
 interface EmptyStateProps {
   readonly onPickFolder: () => void
@@ -19,14 +20,14 @@ export function EmptyState({ onPickFolder, disabled }: EmptyStateProps): ReactEl
         <p className="text-xs text-muted-foreground mb-6 leading-relaxed">
           Drag and drop your Steam screenshot folder or files anywhere on this window to start cropping.
         </p>
-        <button
-          type="button"
+        <UiButton
+          variant="outline"
+          size="md"
           onClick={onPickFolder}
           disabled={disabled}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-xs font-medium text-foreground bg-card hover:bg-muted active:bg-muted/70 border border-border transition-colors disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
         >
           Choose folder
-        </button>
+        </UiButton>
       </div>
     </div>
   )

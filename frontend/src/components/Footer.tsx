@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { FolderDown, Scissors, RefreshCw } from 'lucide-react'
 import type { AspectRatioOption, OutputMode } from '../types/screenshot'
+import { UiButton } from './UiButton'
 
 const RATIO_OPTIONS: readonly AspectRatioOption[] = [
   { label: '16:9 (standard)', value: '16:9' },
@@ -8,6 +9,8 @@ const RATIO_OPTIONS: readonly AspectRatioOption[] = [
   { label: '4:3 (retro)', value: '4:3' },
   { label: '16:10 (laptop)', value: '16:10' },
 ]
+
+const SELECT_CLASS = 'bg-muted text-foreground text-xs rounded-md border border-border px-2 py-1 outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer'
 
 interface FooterProps {
   readonly totalCount: number
@@ -44,22 +47,19 @@ export function Footer({
   return (
     <footer className="h-16 border-t border-border bg-card/90 px-4 flex items-center justify-between shrink-0 select-none">
       <div className="flex items-center gap-2">
-        <button
-          type="button"
+        <UiButton
           onClick={onSelectAll}
           disabled={totalCount === 0 || isAllSelected || isProcessing}
-          className="px-2.5 py-1.5 rounded-md text-xs font-medium text-foreground bg-muted hover:bg-muted/80 active:bg-muted/60 border border-border transition-colors disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
         >
           Select all
-        </button>
-        <button
-          type="button"
+        </UiButton>
+        <UiButton
+          variant="ghost"
           onClick={onClear}
           disabled={!hasSelection || isProcessing}
-          className="px-2.5 py-1.5 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 active:bg-muted/40 transition-colors disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
         >
           Clear
-        </button>
+        </UiButton>
       </div>
 
       <div className="text-xs text-muted-foreground font-mono">
@@ -74,7 +74,7 @@ export function Footer({
             value={ratio}
             onChange={(e) => onRatioChange(e.target.value)}
             disabled={isProcessing}
-            className="bg-muted text-foreground text-xs rounded-md border border-border px-2 py-1 outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+            className={SELECT_CLASS}
           >
             {RATIO_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value} className="bg-card text-foreground">
@@ -90,7 +90,7 @@ export function Footer({
             value={outputMode}
             onChange={(e) => onOutputModeChange(e.target.value as OutputMode)}
             disabled={isProcessing}
-            className="bg-muted text-foreground text-xs rounded-md border border-border px-2 py-1 outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+            className={SELECT_CLASS}
           >
             <option value="directory" className="bg-card text-foreground">
               Save to folder
@@ -130,15 +130,15 @@ export function Footer({
           </div>
         )}
 
-        <button
-          type="button"
+        <UiButton
+          variant="primary"
           onClick={onCrop}
           disabled={!hasSelection || isProcessing}
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 active:bg-primary/80 transition-colors disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
+          className="px-3.5 py-1.5"
         >
           <Scissors className="w-3.5 h-3.5" />
           {outputMode === 'replace' ? 'Crop & replace' : 'Crop selected'}
-        </button>
+        </UiButton>
       </div>
     </footer>
   )

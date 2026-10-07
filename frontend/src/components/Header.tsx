@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import { FolderOpen } from 'lucide-react'
+import { UiButton } from './UiButton'
 
 interface HeaderProps {
   readonly currentFolder: string | null
@@ -26,16 +27,14 @@ export function Header({ currentFolder, onPickFolder, disabled }: HeaderProps): 
             {currentFolder}
           </span>
         )}
-        <button
-          type="button"
+        <UiButton
           onClick={onPickFolder}
           disabled={disabled}
           title="Select folder with screenshots to crop"
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-foreground bg-muted hover:bg-muted/80 active:bg-muted/60 border border-border transition-colors disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
         >
           <FolderOpen className="w-3.5 h-3.5 text-muted-foreground" />
           Open screenshots
-        </button>
+        </UiButton>
       </div>
     </header>
   )
