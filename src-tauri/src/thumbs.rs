@@ -1,11 +1,10 @@
-use image::imageops::FilterType;
 use image::ImageEncoder;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ThumbError {
@@ -21,19 +20,72 @@ pub enum ThumbError {
     IoError(#[from] std::io::Error),
 }
 
+pub struct Semaphore {
+    permits: Mutex<usize>,
+    cvar: Condvar,
+}
+
+impl Semaphore {
+    pub fn new(permits: usize) -> Self {
+        Self {
+            permits: Mutex::new(permits),
+            cvar: Condvar::new(),
+        }
+    }
+
+    pub fn acquire(&self) -> SemaphoreGuard<'_> {
+        let mut permits = self.permits.lock().unwrap();
+        while *permits == 0 {
+            permits = self.cvar.wait(permits).unwrap();
+        }
+        *permits -= 1;
+        SemaphoreGuard { sem: self }
+    }
+}
+
+pub struct SemaphoreGuard<'a> {
+    sem: &'a Semaphore,
+}
+
+impl<'a> Drop for SemaphoreGuard<'a> {
+    fn drop(&mut self) {
+        let mut permits = self.sem.permits.lock().unwrap();
+        *permits += 1;
+        self.sem.cvar.notify_one();
+    }
+}
+
+pub fn default_cache_dir() -> PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("steam-screenshot-cropper")
+        .join("thumbs")
+}
+
 pub struct ThumbService {
     allowed: RwLock<HashSet<String>>,
     cache: Mutex<HashMap<String, Arc<Vec<u8>>>>,
     thumb_width: u32,
+    cache_dir: PathBuf,
+    semaphore: Semaphore,
 }
 
 impl ThumbService {
     pub fn new(thumb_width: u32) -> Self {
+        Self::with_cache_dir(thumb_width, default_cache_dir())
+    }
+
+    pub fn with_cache_dir(thumb_width: u32, cache_dir: PathBuf) -> Self {
         let width = if thumb_width == 0 { 420 } else { thumb_width };
+        let _ = fs::create_dir_all(&cache_dir);
+        let max_concurrent = num_cpus::get().clamp(1, 4);
+
         Self {
             allowed: RwLock::new(HashSet::new()),
             cache: Mutex::new(HashMap::new()),
             thumb_width: width,
+            cache_dir,
+            semaphore: Semaphore::new(max_concurrent),
         }
     }
 
@@ -64,6 +116,26 @@ impl ThumbService {
         false
     }
 
+    fn get_cached(&self, cache_key: &str, disk_path: &Path) -> Option<Arc<Vec<u8>>> {
+        {
+            let cache = self.cache.lock().unwrap();
+            if let Some(cached) = cache.get(cache_key) {
+                return Some(Arc::clone(cached));
+            }
+        }
+
+        if disk_path.is_file() {
+            if let Ok(bytes) = fs::read(disk_path) {
+                let arc_data = Arc::new(bytes);
+                let mut cache = self.cache.lock().unwrap();
+                cache.insert(cache_key.to_string(), Arc::clone(&arc_data));
+                return Some(arc_data);
+            }
+        }
+
+        None
+    }
+
     pub fn render(&self, path_str: &str) -> Result<Arc<Vec<u8>>, ThumbError> {
         let path = PathBuf::from(path_str);
         if !self.is_allowed(&path) {
@@ -81,13 +153,18 @@ impl ThumbService {
         let mut hasher = Sha256::new();
         hasher.update(path_str.as_bytes());
         hasher.update(mod_time.to_le_bytes());
+        hasher.update(self.thumb_width.to_le_bytes());
         let cache_key = format!("{:x}", hasher.finalize());
+        let disk_path = self.cache_dir.join(format!("{}.jpg", cache_key));
 
-        {
-            let cache = self.cache.lock().unwrap();
-            if let Some(cached) = cache.get(&cache_key) {
-                return Ok(Arc::clone(cached));
-            }
+        if let Some(cached) = self.get_cached(&cache_key, &disk_path) {
+            return Ok(cached);
+        }
+
+        let _permit = self.semaphore.acquire();
+
+        if let Some(cached) = self.get_cached(&cache_key, &disk_path) {
+            return Ok(cached);
         }
 
         let img = image::open(&path).map_err(|e| ThumbError::DecodeError(e.to_string()))?;
@@ -96,7 +173,7 @@ impl ThumbService {
         let target_w = if orig_w < self.thumb_width { orig_w } else { self.thumb_width };
         let target_h = (((orig_h as f64) * (target_w as f64) / (orig_w as f64)).round() as u32).max(1);
 
-        let resized = img.resize(target_w, target_h, FilterType::Triangle);
+        let resized = img.thumbnail(target_w, target_h);
 
         let mut buf = Vec::new();
         let mut cursor = Cursor::new(&mut buf);
@@ -109,6 +186,9 @@ impl ThumbService {
                 image::ExtendedColorType::Rgb8,
             )
             .map_err(|e| ThumbError::EncodeError(e.to_string()))?;
+
+        // Write to disk cache
+        let _ = fs::write(&disk_path, &buf);
 
         let arc_data = Arc::new(buf);
         let mut cache = self.cache.lock().unwrap();
@@ -126,8 +206,9 @@ mod tests {
 
     #[test]
     fn test_thumb_service_cache_and_render() {
-        let service = ThumbService::new(420);
         let dir = tempdir().unwrap();
+        let cache_dir = dir.path().join("thumb_cache");
+        let service = ThumbService::with_cache_dir(420, cache_dir.clone());
         let img_path = dir.path().join("thumb_test.png");
 
         let mut img = RgbaImage::new(1000, 500);
@@ -139,18 +220,27 @@ mod tests {
         let path_str = img_path.to_string_lossy().to_string();
         service.register_allowed([&path_str]);
 
-        // First render
+        // First render: creates disk cache file and memory cache
         let bytes1 = service.render(&path_str).unwrap();
         assert!(!bytes1.is_empty());
 
-        // Decode generated JPEG thumbnail and check dimensions
         let decoded = image::load_from_memory(&bytes1).unwrap();
         assert_eq!(decoded.width(), 420);
         assert_eq!(decoded.height(), 210);
 
-        // Second render should return the same Arc from memory cache
+        // Verify disk cache file was written
+        let cached_files: Vec<_> = fs::read_dir(&cache_dir).unwrap().flatten().collect();
+        assert_eq!(cached_files.len(), 1);
+
+        // Second render: returns same Arc from memory cache
         let bytes2 = service.render(&path_str).unwrap();
         assert!(Arc::ptr_eq(&bytes1, &bytes2));
+
+        // Create fresh service pointing to same disk cache dir: verifies disk cache hit
+        let service2 = ThumbService::with_cache_dir(420, cache_dir);
+        service2.register_allowed([&path_str]);
+        let bytes3 = service2.render(&path_str).unwrap();
+        assert_eq!(bytes1.as_slice(), bytes3.as_slice());
     }
 
     #[test]
@@ -158,5 +248,15 @@ mod tests {
         let service = ThumbService::new(420);
         let res = service.render("C:\\forbidden\\secret.exe");
         assert!(matches!(res, Err(ThumbError::Forbidden(_))));
+    }
+
+    #[test]
+    fn test_semaphore_permits() {
+        let sem = Arc::new(Semaphore::new(2));
+        let g1 = sem.acquire();
+        let g2 = sem.acquire();
+        drop(g1);
+        let _g3 = sem.acquire();
+        drop(g2);
     }
 }

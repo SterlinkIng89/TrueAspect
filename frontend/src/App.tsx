@@ -59,7 +59,7 @@ export default function App(): ReactElement {
         name: s.name,
       }))
       setItems(mapped)
-      selectAll(mapped)
+      clear()
 
       if (paths.length === 1 && paths[0]) {
         setCurrentFolder(paths[0])
@@ -71,7 +71,7 @@ export default function App(): ReactElement {
     } finally {
       setIsLoading(false)
     }
-  }, [selectAll])
+  }, [clear])
 
   useEffect(() => {
     let unlistenProgress: (() => void) | undefined
