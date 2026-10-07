@@ -12,7 +12,7 @@ export function Header({ currentFolder, onPickFolder, disabled }: HeaderProps): 
     <header className="h-14 border-b border-border bg-card/80 px-4 flex items-center justify-between shrink-0 select-none">
       <div className="flex items-center gap-2.5">
         <div className="w-2.5 h-2.5 rounded-full bg-primary" />
-        <h1 className="text-sm font-medium tracking-tight text-foreground">Steam screenshot cropper</h1>
+        <h1 className="text-sm font-medium tracking-tight text-foreground">True Aspect</h1>
       </div>
 
       <div className="flex items-center gap-3">
@@ -29,7 +29,7 @@ export function Header({ currentFolder, onPickFolder, disabled }: HeaderProps): 
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-foreground bg-muted hover:bg-muted/80 border border-border transition-colors disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
         >
           <FolderOpen className="w-3.5 h-3.5 text-muted-foreground" />
-          Open screenshots
+          Open folder
         </button>
       </div>
     </header>

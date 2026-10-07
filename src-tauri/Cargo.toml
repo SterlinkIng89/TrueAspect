@@ -1,7 +1,7 @@
 [package]
-name = "steam-screenshot-cropper"
+name = "true-aspect"
 version = "0.1.0"
-description = "Steam Screenshot Cropper Desktop App"
+description = "True Aspect Desktop App"
 authors = ["SterlinkIng89"]
 edition = "2021"
 

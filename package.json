@@ -1,5 +1,5 @@
 {
-  "name": "steam-screenshot-cropper",
+  "name": "true-aspect",
   "private": true,
   "scripts": {
     "dev": "npm --prefix frontend run dev",
