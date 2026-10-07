@@ -1,7 +1,7 @@
-use std::fs::{self, File};
-use std::io::BufWriter;
+use std::fs;
 use std::path::Path;
 use image::{GenericImageView, ImageEncoder};
+use crate::metadata::{preserve_image_metadata, FileTimestamps};
 
 pub const DEFAULT_THRESHOLD: u8 = 20;
 
@@ -156,16 +156,15 @@ pub fn is_black_region(img: &image::DynamicImage, r: Rect, threshold: u8) -> boo
 
 fn encode_and_save(
     img: &image::DynamicImage,
+    src_path: &Path,
     target_path: &Path,
     ext: &str,
     quality: u8,
 ) -> Result<(), String> {
-    let out_file = File::create(target_path)
-        .map_err(|e| format!("failed to create output file: {e}"))?;
-    let mut writer = BufWriter::new(out_file);
+    let mut encoded_buf = Vec::new();
 
     if ext == "png" {
-        let encoder = image::codecs::png::PngEncoder::new(&mut writer);
+        let encoder = image::codecs::png::PngEncoder::new(&mut encoded_buf);
         encoder
             .write_image(
                 img.to_rgba8().as_raw(),
@@ -176,7 +175,7 @@ fn encode_and_save(
             .map_err(|e| format!("png encode error: {e}"))?;
     } else {
         let q = if quality == 0 || quality > 100 { 95 } else { quality };
-        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut writer, q);
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded_buf, q);
         encoder
             .write_image(
                 img.to_rgb8().as_raw(),
@@ -186,6 +185,13 @@ fn encode_and_save(
             )
             .map_err(|e| format!("jpeg encode error: {e}"))?;
     }
+
+    let final_bytes = match fs::read(src_path) {
+        Ok(src_bytes) => preserve_image_metadata(&src_bytes, &encoded_buf, ext),
+        Err(_) => encoded_buf,
+    };
+
+    fs::write(target_path, final_bytes).map_err(|e| format!("failed to write output file: {e}"))?;
     Ok(())
 }
 
@@ -199,12 +205,16 @@ fn handle_unmodified(
     match mode {
         OutputMode::Directory => {
             if let Some(target) = dest_path {
+                let timestamps = FileTimestamps::from_path(src_path);
                 if let Err(e) = fs::copy(src_path, target) {
                     return CropResult {
                         path: src_path.to_string_lossy().to_string(),
                         status: Status::Error,
                         message: format!("copy error: {e}"),
                     };
+                }
+                if let Some(ts) = timestamps {
+                    let _ = ts.apply_to(target);
                 }
             }
             CropResult {
@@ -230,16 +240,22 @@ fn save_cropped(
     quality: u8,
     mode: OutputMode,
 ) -> Result<(), String> {
+    let timestamps = FileTimestamps::from_path(src_path);
+
     match mode {
         OutputMode::Directory => {
             let target = dest_path.ok_or_else(|| "missing destination directory".to_string())?;
-            encode_and_save(cropped, target, ext, quality)
+            encode_and_save(cropped, src_path, target, ext, quality)?;
+            if let Some(ts) = timestamps {
+                let _ = ts.apply_to(target);
+            }
+            Ok(())
         }
         OutputMode::Replace => {
             let parent = src_path.parent().unwrap_or_else(|| Path::new("."));
             let temp_path = parent.join(format!(".{}_{}.tmp_crop", std::process::id(), filename));
 
-            if let Err(e) = encode_and_save(cropped, &temp_path, ext, quality) {
+            if let Err(e) = encode_and_save(cropped, src_path, &temp_path, ext, quality) {
                 let _ = fs::remove_file(&temp_path);
                 return Err(e);
             }
@@ -251,7 +267,12 @@ fn save_cropped(
             });
 
             let _ = fs::remove_file(&temp_path);
-            res.map_err(|e| format!("failed to replace original file: {e}"))
+            res.map_err(|e| format!("failed to replace original file: {e}"))?;
+
+            if let Some(ts) = timestamps {
+                let _ = ts.apply_to(src_path);
+            }
+            Ok(())
         }
     }
 }
@@ -545,5 +566,123 @@ mod tests {
         let loaded = image::open(&src_path).unwrap();
         assert_eq!(loaded.width(), 150);
         assert_eq!(loaded.height(), 100);
+    }
+
+    #[test]
+    fn test_timestamps_restored_on_replace_mode() {
+        let dir = tempdir().unwrap();
+        let src_path = dir.path().join("test_replace_time.png");
+        let dummy_out_dir = dir.path().join("unused_output");
+
+        let mut img = RgbaImage::new(200, 100);
+        for y in 0..100 {
+            for x in 0..200 {
+                if x < 25 || x >= 175 {
+                    img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+                } else {
+                    img.put_pixel(x, y, Rgba([200, 200, 200, 255]));
+                }
+            }
+        }
+        img.save(&src_path).unwrap();
+
+        let past_time = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        let mut times = std::fs::FileTimes::new().set_modified(past_time);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileTimesExt;
+            times = times.set_created(past_time);
+        }
+        let file = std::fs::OpenOptions::new().write(true).open(&src_path).unwrap();
+        file.set_times(times).unwrap();
+        drop(file);
+
+        let res = process(&src_path, &dummy_out_dir, 1.5, 20, 95, OutputMode::Replace);
+        assert_eq!(res.status, Status::Cropped);
+
+        let new_meta = std::fs::metadata(&src_path).unwrap();
+        let new_mod_time = new_meta.modified().unwrap();
+        let diff = if new_mod_time > past_time {
+            new_mod_time.duration_since(past_time).unwrap()
+        } else {
+            past_time.duration_since(new_mod_time).unwrap()
+        };
+        assert!(diff.as_secs() <= 2, "Modified time should be preserved across Replace mode");
+    }
+
+    #[test]
+    fn test_process_directory_mode_preserves_metadata_and_timestamps() {
+        use img_parts::jpeg::{Jpeg, JpegSegment};
+        use image::{Rgb, RgbImage};
+
+        let dir = tempdir().unwrap();
+        let src_path = dir.path().join("test_src.jpg");
+        let out_dir = dir.path().join("output");
+
+        // 200x100 image with 25px black margins on left/right
+        let mut img = RgbImage::new(200, 100);
+        for y in 0..100 {
+            for x in 0..200 {
+                if x < 25 || x >= 175 {
+                    img.put_pixel(x, y, Rgb([0, 0, 0]));
+                } else {
+                    img.put_pixel(x, y, Rgb([180, 180, 180]));
+                }
+            }
+        }
+
+        let mut raw_jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut raw_jpeg)
+            .write_image(
+                img.as_raw(),
+                200,
+                100,
+                image::ExtendedColorType::Rgb8,
+            )
+            .unwrap();
+
+        let mut src_jpeg = Jpeg::from_bytes(bytes::Bytes::copy_from_slice(&raw_jpeg)).unwrap();
+        let custom_exif = JpegSegment::new_with_contents(
+            0xE1,
+            bytes::Bytes::from_static(b"Exif\0\0special_steam_tag"),
+        );
+        src_jpeg.segments_mut().insert(1, custom_exif);
+        let src_bytes = src_jpeg.encoder().bytes().to_vec();
+        std::fs::write(&src_path, src_bytes).unwrap();
+
+        let past_time = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+        let mut times = std::fs::FileTimes::new().set_modified(past_time);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileTimesExt;
+            times = times.set_created(past_time);
+        }
+        let file = std::fs::OpenOptions::new().write(true).open(&src_path).unwrap();
+        file.set_times(times).unwrap();
+        drop(file);
+
+        let res = process(&src_path, &out_dir, 1.5, 20, 95, OutputMode::Directory);
+        assert_eq!(res.status, Status::Cropped);
+
+        let out_path = out_dir.join("test_src.jpg");
+        assert!(out_path.exists());
+
+        // Verify metadata was transferred
+        let out_bytes = std::fs::read(&out_path).unwrap();
+        let out_jpeg = Jpeg::from_bytes(bytes::Bytes::copy_from_slice(&out_bytes)).unwrap();
+        let has_exif = out_jpeg.segments().iter().any(|s| {
+            s.marker() == 0xE1 && s.contents().starts_with(b"Exif\0\0special_steam_tag")
+        });
+        assert!(has_exif, "Metadata should be transferred to cropped output file");
+
+        // Verify timestamp was preserved
+        let out_meta = std::fs::metadata(&out_path).unwrap();
+        let out_mod = out_meta.modified().unwrap();
+        let diff = if out_mod > past_time {
+            out_mod.duration_since(past_time).unwrap()
+        } else {
+            past_time.duration_since(out_mod).unwrap()
+        };
+        assert!(diff.as_secs() <= 2, "Modified timestamp should be copied to output file");
     }
 }

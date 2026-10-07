@@ -1,8 +1,6 @@
 import type { ReactElement } from 'react'
-import { CheckCircle2, Copy, SkipForward, AlertCircle } from 'lucide-react'
+import { CheckCircle2, Copy, SkipForward, AlertCircle, X } from 'lucide-react'
 import type { CropResultItem, OutputMode } from '../types/screenshot'
-import { Modal } from './Modal'
-import { UiButton } from './UiButton'
 
 interface SummaryDialogProps {
   readonly results: readonly CropResultItem[] | null
@@ -27,51 +25,60 @@ export function SummaryDialog({
   const errorCount = results.filter((r) => r.status === 'error').length
 
   return (
-    <Modal
-      isOpen={true}
-      onClose={onClose}
-      title="Processing complete"
-      subtitle={`Processed ${results.length} screenshots.`}
-    >
-      <div className="grid grid-cols-2 gap-2.5 mb-5">
-        {stats.map(({ label, count, icon: Icon, color }) => (
-          <div key={label} className="bg-muted/50 border border-border/60 rounded-lg p-3">
-            <div className="flex items-center gap-2 mb-1">
-              <Icon className={`w-4 h-4 ${color}`} />
-              <span className="text-xs font-medium text-foreground">{label}</span>
-            </div>
-            <span className="text-lg font-semibold text-foreground">{count}</span>
-          </div>
-        ))}
-
-        {errorCount > 0 && (
-          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
-            <div className="flex items-center gap-2 mb-1">
-              <AlertCircle className="w-4 h-4 text-destructive" />
-              <span className="text-xs font-medium text-destructive">Errors</span>
-            </div>
-            <span className="text-lg font-semibold text-destructive">{errorCount}</span>
-          </div>
-        )}
-      </div>
-
-      <div className="bg-muted/30 border border-border/50 rounded-lg p-3 mb-5">
-        <p className="text-[11px] text-muted-foreground mb-0.5">
-          {outputMode === 'replace' ? 'Destination:' : 'Saved to:'}
-        </p>
-        <p
-          className="text-xs text-foreground font-mono truncate"
-          title={outputMode === 'replace' ? 'Original files replaced in-place' : outputFolder}
+    <div className="fixed inset-0 bg-background/80 backdrop-blur-xs z-50 flex items-center justify-center p-4 select-none">
+      <div className="w-full max-w-md bg-card border border-border rounded-xl p-6 relative">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
         >
-          {outputMode === 'replace' ? 'Replaced original files in-place' : outputFolder}
-        </p>
-      </div>
+          <X className="w-4 h-4" />
+        </button>
 
-      <div className="flex justify-end">
-        <UiButton variant="primary" onClick={onClose} className="px-4 py-1.5">
-          Done
-        </UiButton>
+        <h3 className="text-sm font-medium text-foreground mb-1">Processing complete</h3>
+        <p className="text-xs text-muted-foreground mb-5">Processed {results.length} screenshots.</p>
+
+        <div className="grid grid-cols-2 gap-2.5 mb-5">
+          {stats.map(({ label, count, icon: Icon, color }) => (
+            <div key={label} className="bg-muted/50 border border-border/60 rounded-lg p-3">
+              <div className="flex items-center gap-2 mb-1">
+                <Icon className={`w-4 h-4 ${color}`} />
+                <span className="text-xs font-medium text-foreground">{label}</span>
+              </div>
+              <span className="text-lg font-semibold text-foreground">{count}</span>
+            </div>
+          ))}
+
+          {errorCount > 0 && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+              <div className="flex items-center gap-2 mb-1">
+                <AlertCircle className="w-4 h-4 text-destructive" />
+                <span className="text-xs font-medium text-destructive">Errors</span>
+              </div>
+              <span className="text-lg font-semibold text-destructive">{errorCount}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-muted/30 border border-border/50 rounded-lg p-3 mb-5">
+          <p className="text-[11px] text-muted-foreground mb-0.5">
+            {outputMode === 'replace' ? 'Destination:' : 'Saved to:'}
+          </p>
+          <p className="text-xs text-foreground font-mono truncate" title={outputMode === 'replace' ? 'Original files replaced' : outputFolder}>
+            {outputMode === 'replace' ? 'Replaced original files in-place' : outputFolder}
+          </p>
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-1.5 rounded-md text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 transition-colors cursor-pointer"
+          >
+            Done
+          </button>
+        </div>
       </div>
-    </Modal>
+    </div>
   )
 }

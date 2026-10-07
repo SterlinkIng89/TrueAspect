@@ -1,80 +1,35 @@
 import { useState, useCallback } from 'react'
 import type { ScreenshotItem } from '../types/screenshot'
 
-export interface UseSelectionReturn {
-  readonly selectedPaths: ReadonlySet<string>
-  readonly isSelected: (path: string) => boolean
-  readonly toggle: (path: string, isShiftKey: boolean, items: readonly ScreenshotItem[]) => void
-  readonly selectAll: (items: readonly ScreenshotItem[]) => void
-  readonly clear: () => void
-  readonly count: number
-}
+export function useSelection() {
+  const [selectedPaths, setSelected] = useState<ReadonlySet<string>>(() => new Set())
+  const [lastPath, setLastPath] = useState<string | null>(null)
 
-export function useSelection(): UseSelectionReturn {
-  const [selectedPaths, setSelectedPaths] = useState<ReadonlySet<string>>(() => new Set())
-  const [lastClickedPath, setLastClickedPath] = useState<string | null>(null)
-
-  const isSelected = useCallback((path: string) => {
-    return selectedPaths.has(path)
-  }, [selectedPaths])
-
-  const toggle = useCallback((path: string, isShiftKey: boolean, items: readonly ScreenshotItem[]) => {
-    setSelectedPaths(prev => {
+  const toggle = useCallback((path: string, isShift: boolean, items: readonly ScreenshotItem[]) => {
+    setSelected(prev => {
       const next = new Set(prev)
-
-      if (isShiftKey && lastClickedPath && items.length > 0) {
-        const lastIndex = items.findIndex(item => item.path === lastClickedPath)
-        const currentIndex = items.findIndex(item => item.path === path)
-
-        if (lastIndex !== -1 && currentIndex !== -1) {
-          const start = Math.min(lastIndex, currentIndex)
-          const end = Math.max(lastIndex, currentIndex)
-          const shouldAdd = !prev.has(path)
-
-          for (let i = start; i <= end; i++) {
-            const currentItem = items[i]
-            if (currentItem) {
-              if (shouldAdd) {
-                next.add(currentItem.path)
-              } else {
-                next.delete(currentItem.path)
-              }
-            }
-          }
+      if (isShift && lastPath) {
+        const i1 = items.findIndex(i => i.path === lastPath)
+        const i2 = items.findIndex(i => i.path === path)
+        if (i1 !== -1 && i2 !== -1) {
+          const [start, end] = [Math.min(i1, i2), Math.max(i1, i2)]
+          const add = !prev.has(path)
+          for (let i = start; i <= end; i++) add ? next.add(items[i].path) : next.delete(items[i].path)
           return next
         }
       }
-
-      if (next.has(path)) {
-        next.delete(path)
-      } else {
-        next.add(path)
-      }
+      next.has(path) ? next.delete(path) : next.add(path)
       return next
     })
-
-    setLastClickedPath(path)
-  }, [lastClickedPath])
-
-  const selectAll = useCallback((items: readonly ScreenshotItem[]) => {
-    const next = new Set<string>()
-    for (const item of items) {
-      next.add(item.path)
-    }
-    setSelectedPaths(next)
-  }, [])
-
-  const clear = useCallback(() => {
-    setSelectedPaths(new Set())
-    setLastClickedPath(null)
-  }, [])
+    setLastPath(path)
+  }, [lastPath])
 
   return {
     selectedPaths,
-    isSelected,
+    isSelected: useCallback((path: string) => selectedPaths.has(path), [selectedPaths]),
     toggle,
-    selectAll,
-    clear,
+    selectAll: useCallback((items: readonly ScreenshotItem[]) => setSelected(new Set(items.map(i => i.path))), []),
+    clear: useCallback(() => { setSelected(new Set()); setLastPath(null) }, []),
     count: selectedPaths.size,
   }
 }

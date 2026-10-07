@@ -3,6 +3,7 @@
 
 pub mod commands;
 pub mod cropper;
+pub mod metadata;
 pub mod scanner;
 pub mod thumbs;
 
