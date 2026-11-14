@@ -63,6 +63,7 @@ pub async fn crop_screenshots(
     ratio_str: String,
     out_dir_str: String,
     mode: Option<String>,
+    sensitivity: Option<String>,
     thumb_service: State<'_, Arc<ThumbService>>,
 ) -> Result<Vec<CropResult>, String> {
     if paths.is_empty() {
@@ -73,6 +74,7 @@ pub async fn crop_screenshots(
         Some("replace") => cropper::OutputMode::Replace,
         _ => cropper::OutputMode::Directory,
     };
+    let threshold = cropper::MarginSensitivity::from_str_opt(sensitivity.as_deref()).threshold();
 
     let out_dir = if out_dir_str.trim().is_empty() {
         PathBuf::from(get_default_output_dir())
@@ -101,7 +103,7 @@ pub async fn crop_screenshots(
                     src_path,
                     &out_dir,
                     target_ratio,
-                    cropper::DEFAULT_THRESHOLD,
+                    threshold,
                     95,
                     output_mode,
                 );

@@ -3,7 +3,10 @@ use std::path::Path;
 use image::{GenericImageView, ImageEncoder};
 use crate::metadata::{preserve_image_metadata, FileTimestamps};
 
-pub const DEFAULT_THRESHOLD: u8 = 20;
+pub use crate::margin::{
+    format_failed_bars, is_black_region, measure_bar, measure_bars, target_box, BarMeasurement,
+    BarSide, MarginSensitivity, Rect, DEFAULT_MAX_BRIGHT_RATIO, DEFAULT_THRESHOLD, EDGE_INSET,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -22,49 +25,63 @@ pub enum Status {
     Error,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CropReason {
+    AlreadyMatchesRatio,
+    NonBlackMargins,
+    OutputExists,
+    DecodeFailed,
+    WriteFailed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ImageDimensions {
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CropResult {
     pub path: String,
     pub status: Status,
     pub message: String,
+    pub reason: Option<CropReason>,
+    pub dimensions: Option<ImageDimensions>,
+    pub target_box: Option<Rect>,
+    pub margin_measurements: Option<Vec<BarMeasurement>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Rect {
-    pub min_x: u32,
-    pub min_y: u32,
-    pub max_x: u32,
-    pub max_y: u32,
-}
-
-impl Rect {
-    pub fn new(min_x: u32, min_y: u32, max_x: u32, max_y: u32) -> Self {
+impl CropResult {
+    fn simple(path: String, status: Status, reason: Option<CropReason>, message: String) -> Self {
         Self {
-            min_x,
-            min_y,
-            max_x,
-            max_y,
+            path,
+            status,
+            message,
+            reason,
+            dimensions: None,
+            target_box: None,
+            margin_measurements: None,
         }
     }
 
-    pub fn width(&self) -> u32 {
-        self.max_x.saturating_sub(self.min_x)
-    }
-
-    pub fn height(&self) -> u32 {
-        self.max_y.saturating_sub(self.min_y)
-    }
-
-    pub fn intersect(&self, other: &Rect) -> Option<Rect> {
-        let min_x = self.min_x.max(other.min_x);
-        let min_y = self.min_y.max(other.min_y);
-        let max_x = self.max_x.min(other.max_x);
-        let max_y = self.max_y.min(other.max_y);
-
-        if min_x < max_x && min_y < max_y {
-            Some(Rect::new(min_x, min_y, max_x, max_y))
-        } else {
-            None
+    fn with_context(
+        path: String,
+        status: Status,
+        reason: Option<CropReason>,
+        message: String,
+        dimensions: ImageDimensions,
+        target_box: Rect,
+        margin_measurements: Option<Vec<BarMeasurement>>,
+    ) -> Self {
+        Self {
+            path,
+            status,
+            message,
+            reason,
+            dimensions: Some(dimensions),
+            target_box: Some(target_box),
+            margin_measurements,
         }
     }
 }
@@ -102,56 +119,6 @@ pub fn parse_ratio(s: &str) -> Result<f64, String> {
         }
         Ok(val)
     }
-}
-
-pub fn target_box(width: u32, height: u32, target_ratio: f64) -> Rect {
-    if width == 0 || height == 0 || target_ratio <= 0.0 {
-        return Rect::new(0, 0, width, height);
-    }
-
-    let current_ratio = (width as f64) / (height as f64);
-    if current_ratio > target_ratio {
-        let mut target_width = ((height as f64) * target_ratio).round() as u32;
-        if target_width > width {
-            target_width = width;
-        }
-        let offset_x = (width - target_width) / 2;
-        Rect::new(offset_x, 0, offset_x + target_width, height)
-    } else {
-        let mut target_height = ((width as f64) / target_ratio).round() as u32;
-        if target_height > height {
-            target_height = height;
-        }
-        let offset_y = (height - target_height) / 2;
-        Rect::new(0, offset_y, width, offset_y + target_height)
-    }
-}
-
-pub fn is_black_region(img: &image::DynamicImage, r: Rect, threshold: u8) -> bool {
-    let (img_w, img_h) = img.dimensions();
-    let img_rect = Rect::new(0, 0, img_w, img_h);
-
-    let inter = match r.intersect(&img_rect) {
-        Some(i) => i,
-        None => return true,
-    };
-
-    let threshold_val = threshold as u32;
-
-    for y in inter.min_y..inter.max_y {
-        for x in inter.min_x..inter.max_x {
-            let pixel = img.get_pixel(x, y);
-            let r8 = pixel[0] as u32;
-            let g8 = pixel[1] as u32;
-            let b8 = pixel[2] as u32;
-            let y_lum = (299 * r8 + 587 * g8 + 114 * b8) / 1000;
-            if y_lum > threshold_val {
-                return false;
-            }
-        }
-    }
-
-    true
 }
 
 fn encode_and_save(
@@ -197,37 +164,54 @@ fn encode_and_save(
 
 fn handle_unmodified(
     src_path: &Path,
+    src_path_str: String,
     dest_path: Option<&std::path::PathBuf>,
     mode: OutputMode,
-    reason: &str,
+    reason: CropReason,
+    reason_text: &str,
     status_on_copy: Status,
+    dimensions: ImageDimensions,
+    target_box: Rect,
+    margin_measurements: Option<Vec<BarMeasurement>>,
 ) -> CropResult {
     match mode {
         OutputMode::Directory => {
             if let Some(target) = dest_path {
                 let timestamps = FileTimestamps::from_path(src_path);
                 if let Err(e) = fs::copy(src_path, target) {
-                    return CropResult {
-                        path: src_path.to_string_lossy().to_string(),
-                        status: Status::Error,
-                        message: format!("copy error: {e}"),
-                    };
+                    return CropResult::with_context(
+                        src_path_str,
+                        Status::Error,
+                        Some(CropReason::WriteFailed),
+                        format!("copy error: {e}"),
+                        dimensions,
+                        target_box,
+                        margin_measurements,
+                    );
                 }
                 if let Some(ts) = timestamps {
                     let _ = ts.apply_to(target);
                 }
             }
-            CropResult {
-                path: src_path.to_string_lossy().to_string(),
-                status: status_on_copy,
-                message: format!("{reason}; copied"),
-            }
+            CropResult::with_context(
+                src_path_str,
+                status_on_copy,
+                Some(reason),
+                format!("{reason_text}; copied"),
+                dimensions,
+                target_box,
+                margin_measurements,
+            )
         }
-        OutputMode::Replace => CropResult {
-            path: src_path.to_string_lossy().to_string(),
-            status: Status::Skipped,
-            message: format!("{reason}; kept unmodified"),
-        },
+        OutputMode::Replace => CropResult::with_context(
+            src_path_str,
+            Status::Skipped,
+            Some(reason),
+            format!("{reason_text}; kept unmodified"),
+            dimensions,
+            target_box,
+            margin_measurements,
+        ),
     }
 }
 
@@ -285,33 +269,37 @@ pub fn process(
     quality: u8,
     mode: OutputMode,
 ) -> CropResult {
+    let src_path_str = src_path.to_string_lossy().to_string();
     let filename = match src_path.file_name() {
         Some(name) => name.to_string_lossy().to_string(),
         None => {
-            return CropResult {
-                path: src_path.to_string_lossy().to_string(),
-                status: Status::Error,
-                message: "invalid source path".to_string(),
-            }
+            return CropResult::simple(
+                src_path_str,
+                Status::Error,
+                Some(CropReason::DecodeFailed),
+                "invalid source path".to_string(),
+            );
         }
     };
 
     let dest_path = if mode == OutputMode::Directory {
         if let Err(e) = fs::create_dir_all(out_dir) {
-            return CropResult {
-                path: src_path.to_string_lossy().to_string(),
-                status: Status::Error,
-                message: format!("failed to create output dir: {e}"),
-            };
+            return CropResult::simple(
+                src_path_str,
+                Status::Error,
+                Some(CropReason::WriteFailed),
+                format!("failed to create output dir: {e}"),
+            );
         }
 
         let p = out_dir.join(&filename);
         if p.exists() {
-            return CropResult {
-                path: src_path.to_string_lossy().to_string(),
-                status: Status::Skipped,
-                message: "already exists in output".to_string(),
-            };
+            return CropResult::simple(
+                src_path_str,
+                Status::Skipped,
+                Some(CropReason::OutputExists),
+                "already exists in output".to_string(),
+            );
         }
         Some(p)
     } else {
@@ -321,15 +309,17 @@ pub fn process(
     let img = match image::open(src_path) {
         Ok(i) => i,
         Err(e) => {
-            return CropResult {
-                path: src_path.to_string_lossy().to_string(),
-                status: Status::Error,
-                message: format!("decode error: {e}"),
-            }
+            return CropResult::simple(
+                src_path_str,
+                Status::Error,
+                Some(CropReason::DecodeFailed),
+                format!("decode error: {e}"),
+            );
         }
     };
 
     let (width, height) = img.dimensions();
+    let dimensions = ImageDimensions { width, height };
     let box_rect = target_box(width, height, target_ratio);
 
     if box_rect.min_x == 0
@@ -339,31 +329,32 @@ pub fn process(
     {
         return handle_unmodified(
             src_path,
+            src_path_str,
             dest_path.as_ref(),
             mode,
+            CropReason::AlreadyMatchesRatio,
             "already matches target ratio",
             Status::Copied,
+            dimensions,
+            box_rect,
+            None,
         );
     }
 
-    // Verify candidate margin regions are black
-    let left_bar = Rect::new(0, 0, box_rect.min_x, height);
-    let right_bar = Rect::new(box_rect.max_x, 0, width, height);
-    let top_bar = Rect::new(0, 0, width, box_rect.min_y);
-    let bottom_bar = Rect::new(0, box_rect.max_y, width, height);
-
-    let bars_are_black = is_black_region(&img, left_bar, threshold)
-        && is_black_region(&img, right_bar, threshold)
-        && is_black_region(&img, top_bar, threshold)
-        && is_black_region(&img, bottom_bar, threshold);
-
-    if !bars_are_black {
+    let measurements = measure_bars(&img, box_rect, threshold);
+    if !measurements.iter().all(|m| m.passed) {
+        let reason_text = format!("non-black margins ({})", format_failed_bars(&measurements));
         return handle_unmodified(
             src_path,
+            src_path_str,
             dest_path.as_ref(),
             mode,
-            "non-black margins",
+            CropReason::NonBlackMargins,
+            &reason_text,
             Status::Copied,
+            dimensions,
+            box_rect,
+            Some(measurements),
         );
     }
 
@@ -389,22 +380,30 @@ pub fn process(
         quality,
         mode,
     ) {
-        return CropResult {
-            path: src_path.to_string_lossy().to_string(),
-            status: Status::Error,
-            message: e,
-        };
+        return CropResult::with_context(
+            src_path_str,
+            Status::Error,
+            Some(CropReason::WriteFailed),
+            e,
+            dimensions,
+            box_rect,
+            Some(measurements),
+        );
     }
 
-    CropResult {
-        path: src_path.to_string_lossy().to_string(),
-        status: Status::Cropped,
-        message: format!(
+    CropResult::with_context(
+        src_path_str,
+        Status::Cropped,
+        None,
+        format!(
             "cropped {width}x{height} -> {}x{}",
             box_rect.width(),
             box_rect.height()
         ),
-    }
+        dimensions,
+        box_rect,
+        Some(measurements),
+    )
 }
 
 #[cfg(test)]
@@ -432,37 +431,31 @@ mod tests {
     }
 
     #[test]
-    fn test_target_box() {
-        // Pillarbox: 2560x1080 target 16:9 -> height 1080, width 1920, offset (2560-1920)/2 = 320
-        let b1 = target_box(2560, 1080, 16.0 / 9.0);
-        assert_eq!(b1, Rect::new(320, 0, 2240, 1080));
+    fn test_process_crops_image_with_bright_edge_column_in_margin() {
+        let dir = tempdir().unwrap();
+        let src_path = dir.path().join("test_edge_column.png");
+        let out_dir = dir.path().join("unused_output");
 
-        // Letterbox: 1920x1200 target 16:9 -> width 1920, height 1080, offset (1200-1080)/2 = 60
-        let b2 = target_box(1920, 1200, 16.0 / 9.0);
-        assert_eq!(b2, Rect::new(0, 60, 1920, 1140));
-
-        // Exact match
-        let b3 = target_box(1920, 1080, 16.0 / 9.0);
-        assert_eq!(b3, Rect::new(0, 0, 1920, 1080));
-    }
-
-    #[test]
-    fn test_is_black_region() {
-        let mut img = RgbaImage::new(100, 100);
-        for pixel in img.pixels_mut() {
-            *pixel = Rgba([10, 10, 10, 255]);
+        let mut img = RgbaImage::new(200, 100);
+        for y in 0..100 {
+            for x in 0..200 {
+                if x < 25 || x >= 175 {
+                    img.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+                } else {
+                    img.put_pixel(x, y, Rgba([180, 180, 180, 255]));
+                }
+            }
+            img.put_pixel(0, y, Rgba([231, 231, 231, 255]));
+            img.put_pixel(175, y, Rgba([231, 231, 231, 255]));
         }
-        let dyn_img = image::DynamicImage::ImageRgba8(img);
+        img.save(&src_path).unwrap();
 
-        assert!(is_black_region(&dyn_img, Rect::new(0, 0, 50, 50), 20));
+        let res = process(&src_path, &out_dir, 1.5, DEFAULT_THRESHOLD, 95, OutputMode::Replace);
+        assert_eq!(res.status, Status::Cropped);
 
-        let mut bright_img = RgbaImage::new(100, 100);
-        for pixel in bright_img.pixels_mut() {
-            *pixel = Rgba([200, 200, 200, 255]);
-        }
-        let dyn_bright = image::DynamicImage::ImageRgba8(bright_img);
-
-        assert!(!is_black_region(&dyn_bright, Rect::new(0, 0, 50, 50), 20));
+        let loaded = image::open(&src_path).unwrap();
+        assert_eq!(loaded.width(), 150);
+        assert_eq!(loaded.height(), 100);
     }
 
     #[test]
@@ -684,5 +677,119 @@ mod tests {
             past_time.duration_since(out_mod).unwrap()
         };
         assert!(diff.as_secs() <= 2, "Modified timestamp should be copied to output file");
+    }
+
+    #[test]
+    fn test_process_structured_reasons_and_measurements() {
+        let dir = tempdir().unwrap();
+        let out_dir = dir.path().join("output");
+
+        // 1. AlreadyMatchesRatio
+        let exact_path = dir.path().join("exact.png");
+        let exact_img = RgbaImage::from_pixel(150, 100, Rgba([100, 100, 100, 255]));
+        exact_img.save(&exact_path).unwrap();
+        let exact_res = process(&exact_path, &out_dir, 1.5, 20, 95, OutputMode::Replace);
+        assert_eq!(exact_res.status, Status::Skipped);
+        assert_eq!(exact_res.reason, Some(CropReason::AlreadyMatchesRatio));
+        assert_eq!(
+            exact_res.dimensions,
+            Some(ImageDimensions {
+                width: 150,
+                height: 100
+            })
+        );
+        assert_eq!(exact_res.target_box, Some(Rect::new(0, 0, 150, 100)));
+        assert!(exact_res.margin_measurements.is_none());
+
+        // 2. NonBlackMargins with measurements
+        let bright_path = dir.path().join("bright_margins.png");
+        let bright_img = RgbaImage::from_pixel(200, 100, Rgba([150, 150, 150, 255]));
+        bright_img.save(&bright_path).unwrap();
+        let bright_res = process(&bright_path, &out_dir, 1.5, 20, 95, OutputMode::Replace);
+        assert_eq!(bright_res.status, Status::Skipped);
+        assert_eq!(bright_res.reason, Some(CropReason::NonBlackMargins));
+        assert_eq!(
+            bright_res.dimensions,
+            Some(ImageDimensions {
+                width: 200,
+                height: 100
+            })
+        );
+        assert_eq!(bright_res.target_box, Some(Rect::new(25, 0, 175, 100)));
+        let measurements = bright_res.margin_measurements.expect("expected measurements");
+        assert_eq!(measurements.len(), 2);
+        assert_eq!(measurements[0].side, BarSide::Left);
+        assert!(!measurements[0].passed);
+        assert_eq!(measurements[0].bright_percent, 100.0);
+        assert_eq!(measurements[0].max_luminance, 150);
+        assert_eq!(measurements[0].threshold, 20);
+        assert_eq!(measurements[1].side, BarSide::Right);
+        assert!(!measurements[1].passed);
+
+        // 3. OutputExists in Directory mode
+        let dup_path = dir.path().join("dup.png");
+        let dup_img = RgbaImage::from_pixel(200, 100, Rgba([0, 0, 0, 255]));
+        dup_img.save(&dup_path).unwrap();
+        let first_dir_res = process(&dup_path, &out_dir, 1.5, 20, 95, OutputMode::Directory);
+        assert_eq!(first_dir_res.status, Status::Cropped);
+        assert!(first_dir_res.reason.is_none());
+        let second_dir_res = process(&dup_path, &out_dir, 1.5, 20, 95, OutputMode::Directory);
+        assert_eq!(second_dir_res.status, Status::Skipped);
+        assert_eq!(second_dir_res.reason, Some(CropReason::OutputExists));
+
+        // 4. DecodeFailed on corrupt/missing file
+        let bad_path = dir.path().join("corrupt.png");
+        std::fs::write(&bad_path, b"not an image").unwrap();
+        let bad_res = process(&bad_path, &out_dir, 1.5, 20, 95, OutputMode::Replace);
+        assert_eq!(bad_res.status, Status::Error);
+        assert_eq!(bad_res.reason, Some(CropReason::DecodeFailed));
+    }
+
+    #[test]
+    fn test_margin_sensitivity_thresholds() {
+        assert_eq!(MarginSensitivity::Strict.threshold(), 10);
+        assert_eq!(MarginSensitivity::Normal.threshold(), DEFAULT_THRESHOLD);
+        assert_eq!(MarginSensitivity::Tolerant.threshold(), 40);
+        assert_eq!(MarginSensitivity::from_str_opt(Some("strict")), MarginSensitivity::Strict);
+        assert_eq!(MarginSensitivity::from_str_opt(Some("tolerant")), MarginSensitivity::Tolerant);
+        assert_eq!(MarginSensitivity::from_str_opt(Some("unknown")), MarginSensitivity::Normal);
+        assert_eq!(MarginSensitivity::from_str_opt(None), MarginSensitivity::Normal);
+
+        let dir = tempdir().unwrap();
+        let src_path = dir.path().join("near_black.png");
+        let out_dir = dir.path().join("output");
+
+        let mut img = RgbaImage::new(200, 100);
+        for y in 0..100 {
+            for x in 0..200 {
+                if x < 25 || x >= 175 {
+                    img.put_pixel(x, y, Rgba([30, 30, 30, 255]));
+                } else {
+                    img.put_pixel(x, y, Rgba([180, 180, 180, 255]));
+                }
+            }
+        }
+        img.save(&src_path).unwrap();
+
+        let normal_res = process(
+            &src_path,
+            &out_dir,
+            1.5,
+            MarginSensitivity::Normal.threshold(),
+            95,
+            OutputMode::Replace,
+        );
+        assert_eq!(normal_res.status, Status::Skipped);
+        assert_eq!(normal_res.reason, Some(CropReason::NonBlackMargins));
+
+        let tolerant_res = process(
+            &src_path,
+            &out_dir,
+            1.5,
+            MarginSensitivity::Tolerant.threshold(),
+            95,
+            OutputMode::Replace,
+        );
+        assert_eq!(tolerant_res.status, Status::Cropped);
     }
 }
