@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import type { ScreenshotItem, CropResultItem, CropProgress, OutputMode } from '../types/screenshot'
+import type { ScreenshotItem, CropResultItem, CropProgress, OutputMode, MarginSensitivity } from '../types/screenshot'
 
 export async function getDefaultOutputDir(): Promise<string> {
   return await invoke<string>('get_default_output_dir')
@@ -44,13 +44,15 @@ export async function cropScreenshots(
   paths: readonly string[],
   ratioStr: string,
   outDir: string,
-  mode: OutputMode = 'directory'
+  mode: OutputMode = 'directory',
+  sensitivity: MarginSensitivity = 'normal'
 ): Promise<readonly CropResultItem[]> {
   return await invoke<CropResultItem[]>('crop_screenshots', {
     paths: [...paths],
     ratioStr,
     outDirStr: outDir,
     mode,
+    sensitivity,
   })
 }
 
