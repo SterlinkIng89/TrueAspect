@@ -1,12 +1,24 @@
 import type { ReactElement } from 'react'
 import { FolderDown, Scissors, RefreshCw } from 'lucide-react'
-import type { AspectRatioOption, OutputMode } from '../types/screenshot'
+import {
+  isMarginSensitivity,
+  type AspectRatioOption,
+  type MarginSensitivity,
+  type OutputMode,
+  type SensitivityOption,
+} from '../types/screenshot'
 
 const RATIO_OPTIONS: readonly AspectRatioOption[] = [
   { label: '16:9 (standard)', value: '16:9' },
   { label: '21:9 (ultrawide)', value: '21:9' },
   { label: '4:3 (retro)', value: '4:3' },
   { label: '16:10 (laptop)', value: '16:10' },
+]
+
+const SENSITIVITY_OPTIONS: readonly SensitivityOption[] = [
+  { label: 'Strict (pure black)', value: 'strict' },
+  { label: 'Normal (default)', value: 'normal' },
+  { label: 'Tolerant (near-black)', value: 'tolerant' },
 ]
 
 const BTN = 'px-2.5 py-1.5 rounded-md text-xs font-medium border border-border transition-colors disabled:opacity-40 disabled:pointer-events-none cursor-pointer'
@@ -17,6 +29,8 @@ interface FooterProps {
   readonly selectedCount: number
   readonly ratio: string
   readonly onRatioChange: (ratio: string) => void
+  readonly sensitivity: MarginSensitivity
+  readonly onSensitivityChange: (sensitivity: MarginSensitivity) => void
   readonly outputFolder: string
   readonly onPickOutputFolder: () => void
   readonly outputMode: OutputMode
@@ -32,6 +46,8 @@ export function Footer({
   selectedCount,
   ratio,
   onRatioChange,
+  sensitivity,
+  onSensitivityChange,
   outputFolder,
   onPickOutputFolder,
   outputMode,
@@ -44,7 +60,7 @@ export function Footer({
   const hasSelection = selectedCount > 0
 
   return (
-    <footer className="h-16 border-t border-border bg-card/90 px-4 flex items-center justify-between shrink-0 select-none">
+    <footer className="min-h-16 border-t border-border bg-card/90 px-4 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0 select-none">
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -73,6 +89,25 @@ export function Footer({
           <span>Ratio:</span>
           <select value={ratio} onChange={(e) => onRatioChange(e.target.value)} disabled={isProcessing} className={SELECT}>
             {RATIO_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value} className="bg-card text-foreground">{opt.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span>Sensitivity:</span>
+          <select
+            aria-label="Margin sensitivity"
+            value={sensitivity}
+            onChange={(e) => {
+              if (isMarginSensitivity(e.target.value)) {
+                onSensitivityChange(e.target.value)
+              }
+            }}
+            disabled={isProcessing}
+            className={SELECT}
+          >
+            {SENSITIVITY_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value} className="bg-card text-foreground">{opt.label}</option>
             ))}
           </select>

@@ -4,8 +4,16 @@ import { Header } from './components/Header'
 import { ScreenshotGrid } from './components/ScreenshotGrid'
 import { Footer } from './components/Footer'
 import { SummaryDialog } from './components/SummaryDialog'
+import { CropErrorDialog } from './components/CropErrorDialog'
 import { useSelection } from './hooks/useSelection'
-import type { ScreenshotItem, CropResultItem, CropProgress, OutputMode } from './types/screenshot'
+import {
+  isMarginSensitivity,
+  type ScreenshotItem,
+  type CropResultItem,
+  type CropProgress,
+  type OutputMode,
+  type MarginSensitivity,
+} from './types/screenshot'
 import {
   getDefaultOutputDir,
   pickFolder,
@@ -17,6 +25,17 @@ import {
   openFolder,
 } from './lib/tauriApi'
 
+const SENSITIVITY_STORAGE_KEY = 'true-aspect:margin-sensitivity'
+
+function readStoredSensitivity(): MarginSensitivity {
+  try {
+    const stored = localStorage.getItem(SENSITIVITY_STORAGE_KEY)
+    return isMarginSensitivity(stored) ? stored : 'normal'
+  } catch {
+    return 'normal'
+  }
+}
+
 export default function App(): ReactElement {
   const [items, setItems] = useState<readonly ScreenshotItem[]>([])
   const [currentFolder, setCurrentFolder] = useState<string | null>(null)
@@ -24,12 +43,14 @@ export default function App(): ReactElement {
   const [outputMode, setOutputMode] = useState<OutputMode>('directory')
   const [cacheVersion, setCacheVersion] = useState<number>(1)
   const [ratio, setRatio] = useState<string>('16:9')
+  const [sensitivity, setSensitivity] = useState<MarginSensitivity>(readStoredSensitivity)
   const [isDragging, setIsDragging] = useState<boolean>(false)
   const [progress, setProgress] = useState<CropProgress | null>(null)
   const [summaryResults, setSummaryResults] = useState<readonly CropResultItem[] | null>(null)
+  const [cropError, setCropError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(false)
 
-  const { selectedPaths, isSelected, toggle, selectAll, clear, count } = useSelection()
+  const { selectedPaths, isSelected, toggle, selectAll, selectPaths, clear, count } = useSelection()
 
   useEffect(() => {
     getDefaultOutputDir().then(setOutputFolder).catch(() => setOutputFolder('~/Pictures/steam-cropped'))
@@ -98,12 +119,23 @@ export default function App(): ReactElement {
         e.preventDefault()
         selectAll(items)
       } else if (e.key === 'Escape') {
-        summaryResults ? setSummaryResults(null) : count > 0 && clear()
+        if (cropError !== null) setCropError(null)
+        else if (summaryResults) setSummaryResults(null)
+        else if (count > 0) clear()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [items, selectAll, clear, count, summaryResults])
+  }, [items, selectAll, clear, count, summaryResults, cropError])
+
+  const handleSensitivityChange = useCallback((next: MarginSensitivity) => {
+    setSensitivity(next)
+    try {
+      localStorage.setItem(SENSITIVITY_STORAGE_KEY, next)
+    } catch {
+      // storage disabled
+    }
+  }, [])
 
   const handlePickFolder = useCallback(async () => {
     const selected = await pickFolder().catch(() => null)
@@ -119,17 +151,25 @@ export default function App(): ReactElement {
     const selectedList = items.filter((item) => selectedPaths.has(item.path)).map((item) => item.path)
     if (selectedList.length === 0) return
 
+    setCropError(null)
     setProgress({ current: 0, total: selectedList.length, name: 'Starting...' })
     try {
-      const raw = await cropScreenshots(selectedList, ratio, outputFolder, outputMode)
+      const raw = await cropScreenshots(selectedList, ratio, outputFolder, outputMode, sensitivity)
       setSummaryResults(raw)
       if (outputMode === 'replace') setCacheVersion(Date.now())
     } catch (err) {
       console.error('Crop failed:', err)
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'string'
+            ? err
+            : 'Failed to crop screenshots'
+      setCropError(message)
     } finally {
       setProgress(null)
     }
-  }, [items, selectedPaths, ratio, outputFolder, outputMode])
+  }, [items, selectedPaths, ratio, outputFolder, outputMode, sensitivity])
 
   const isProcessing = progress !== null || isLoading
   const progressPct = progress && progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0
@@ -172,6 +212,8 @@ export default function App(): ReactElement {
         selectedCount={count}
         ratio={ratio}
         onRatioChange={setRatio}
+        sensitivity={sensitivity}
+        onSensitivityChange={handleSensitivityChange}
         outputFolder={outputFolder}
         onPickOutputFolder={handlePickOutputFolder}
         outputMode={outputMode}
@@ -207,11 +249,24 @@ export default function App(): ReactElement {
         </div>
       )}
 
+      <CropErrorDialog
+        message={cropError}
+        isProcessing={isProcessing}
+        onDismiss={() => setCropError(null)}
+        onRetry={() => {
+          void handleCrop()
+        }}
+      />
+
       <SummaryDialog
         results={summaryResults}
         outputFolder={outputFolder}
         outputMode={outputMode}
         onClose={() => setSummaryResults(null)}
+        onSelectSkipped={(paths) => {
+          selectPaths(paths)
+          setSummaryResults(null)
+        }}
         onViewCropped={() => {
           setSummaryResults(null)
           handleLoadPaths([outputFolder])
