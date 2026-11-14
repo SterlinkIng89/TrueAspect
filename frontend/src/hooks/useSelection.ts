@@ -29,6 +29,10 @@ export function useSelection() {
     isSelected: useCallback((path: string) => selectedPaths.has(path), [selectedPaths]),
     toggle,
     selectAll: useCallback((items: readonly ScreenshotItem[]) => setSelected(new Set(items.map(i => i.path))), []),
+    selectPaths: useCallback((paths: readonly string[]) => {
+      setSelected(new Set(paths))
+      setLastPath(paths[paths.length - 1] ?? null)
+    }, []),
     clear: useCallback(() => { setSelected(new Set()); setLastPath(null) }, []),
     count: selectedPaths.size,
   }
